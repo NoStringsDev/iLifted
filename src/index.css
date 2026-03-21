@@ -27,3 +27,12 @@
   @apply bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-2xl;
 }
 
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-rotate {
+  animation: rotate 4s linear infinite;
+}
+

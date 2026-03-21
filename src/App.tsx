@@ -22,21 +22,20 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type Category = 'living things' | 'machinery' | 'surprise me' | 'food' | 'historical' | 'mythology';
+type Category = 'surprise me' | 'mythology' | 'historical' | 'machinery' | 'living things';
 
-const CATEGORIES: { id: Category; label: string; icon: React.ReactNode; color: string }[] = [
-  { id: 'living things', label: 'Living Things', icon: <Cat className="w-5 h-5" />, color: 'bg-emerald-500' },
-  { id: 'machinery', label: 'Machinery', icon: <Cog className="w-5 h-5" />, color: 'bg-blue-500' },
-  { id: 'food', label: 'Food', icon: <Sparkles className="w-5 h-5 text-orange-400" />, color: 'bg-orange-500' },
-  { id: 'historical', label: 'History', icon: <Trophy className="w-5 h-5" />, color: 'bg-amber-500' },
-  { id: 'mythology', label: 'Mythology', icon: <Skull className="w-5 h-5" />, color: 'bg-red-500' },
-  { id: 'surprise me', label: 'Surprise Me', icon: <Sparkles className="w-5 h-5" />, color: 'bg-purple-500' },
+const CATEGORIES: { id: Category; label: string; icon: React.ReactNode; color: string; activeBorder: string; activeBg: string; activeText: string }[] = [
+  { id: 'surprise me', label: 'Surprise Me', icon: <Sparkles className="w-5 h-5" />, color: 'bg-purple-500', activeBorder: 'border-purple-500', activeBg: 'bg-purple-500/10', activeText: 'text-purple-400' },
+  { id: 'mythology', label: 'Mythology', icon: <Skull className="w-5 h-5" />, color: 'bg-red-500', activeBorder: 'border-red-500', activeBg: 'bg-red-500/10', activeText: 'text-red-400' },
+  { id: 'historical', label: 'History', icon: <Trophy className="w-5 h-5" />, color: 'bg-amber-500', activeBorder: 'border-amber-500', activeBg: 'bg-amber-500/10', activeText: 'text-amber-400' },
+  { id: 'machinery', label: 'Machinery', icon: <Cog className="w-5 h-5" />, color: 'bg-blue-500', activeBorder: 'border-blue-500', activeBg: 'bg-blue-500/10', activeText: 'text-blue-400' },
+  { id: 'living things', label: 'Living Things', icon: <Cat className="w-5 h-5" />, color: 'bg-emerald-500', activeBorder: 'border-emerald-500', activeBg: 'bg-emerald-500/10', activeText: 'text-emerald-400' },
 ];
 
 export default function App() {
   const [weight, setWeight] = useState<string>('');
   const [unit, setUnit] = useState<'kg' | 'lbs'>('kg');
-  const [category, setCategory] = useState<Category>('living things');
+  const [category, setCategory] = useState<Category>('surprise me');
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
@@ -69,7 +68,13 @@ export default function App() {
       });
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Something went wrong. Please try again.');
+      if (err.message === "QUOTA_EXCEEDED_MINUTE") {
+        setError("Sorry, our AI is resting between sets. Try again in a minute!");
+      } else if (err.message === "QUOTA_EXCEEDED_DAY") {
+        setError("The model has hit its max reps for the day and is hitting the showers. Try again tomorrow!");
+      } else {
+        setError(err.message || 'Something went wrong. Please try again.');
+      }
       setLoading(false);
     }
   };
@@ -97,9 +102,15 @@ export default function App() {
       });
     } catch (err: any) {
       console.error("Image generation failed or timed out:", err);
-      setError(err.message === "IMAGE_TIMEOUT" 
-        ? "Image generation timed out. The free tier is a bit busy, try again in a moment!" 
-        : "Failed to generate image. Try again?");
+      if (err.message === "QUOTA_EXCEEDED_MINUTE") {
+        setError("Sorry, our AI image generation is resting between sets. Try again in a minute!");
+      } else if (err.message === "QUOTA_EXCEEDED_DAY") {
+        setError("The model has hit its max reps for the day and is hitting the showers. Try again tomorrow!");
+      } else if (err.message === "IMAGE_TIMEOUT") {
+        setError("Image generation timed out. The free tier is a bit busy, try again in a moment!");
+      } else {
+        setError("Failed to generate image. Try again?");
+      }
       setImageLoading(false);
     }
   };
@@ -129,42 +140,40 @@ export default function App() {
       await new Promise((resolve) => (img.onload = resolve));
 
       // Draw Branding
-      const imgSize = 600;
-      const imgX = (canvas.width - imgSize) / 2;
-      const imgY = 220;
-
       ctx.fillStyle = '#000000';
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 50px Inter';
-      ctx.fillText('iLifted', imgX, 140);
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 40px Inter';
+      ctx.fillText('iLifted', centerX, 80);
+
+      // Draw Weight
+      ctx.font = 'bold 60px Inter';
+      ctx.fillText(`${weight} ${unit}`, centerX, 160);
+      ctx.font = '20px Inter';
+      ctx.fillStyle = '#71717a';
+      ctx.fillText('TOTAL WEIGHT LIFTED', centerX, 195);
 
       // Draw AI Image
+      const imgSize = 520;
+      const imgX = (canvas.width - imgSize) / 2;
+      const imgY = 240;
       ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
 
-      // Text Styling
+      // Comparison Text (Prominent)
       ctx.textAlign = 'center';
-      const textMaxWidth = imgSize;
-
-      // "I lifted a total of [weight] [unit]"
-      ctx.fillStyle = '#000000';
-      ctx.font = 'bold 65px Inter';
-      ctx.fillText(`I lifted a total of ${weight} ${unit}`, centerX, 880);
-
-      // "That's like lifting [shortDescription]!"
-      ctx.fillStyle = '#71717a'; // zinc-500
-      ctx.font = '42px Inter';
+      ctx.fillStyle = '#10b981'; // emerald-500
+      ctx.font = 'bold 55px Inter';
       
       const text = `That's like lifting ${result.shortDescription}!`;
-      const lineHeight = 52;
+      const lineHeight = 65;
       const words = text.split(' ');
       let line = '';
-      let currentY = 960;
+      let currentY = 840;
 
       for (let n = 0; n < words.length; n++) {
         const testLine = line + words[n] + ' ';
         const metrics = ctx.measureText(testLine);
         const testWidth = metrics.width;
-        if (testWidth > textMaxWidth && n > 0) {
+        if (testWidth > 900 && n > 0) {
           ctx.fillText(line, centerX, currentY);
           line = words[n] + ' ';
           currentY += lineHeight;
@@ -173,6 +182,11 @@ export default function App() {
         }
       }
       ctx.fillText(line, centerX, currentY);
+
+      // Footer
+      ctx.fillStyle = '#a1a1aa';
+      ctx.font = '25px Inter';
+      ctx.fillText('Generated by iLifted AI', centerX, 1030);
     } else {
       // TEXT ONLY VERSION
       ctx.fillStyle = '#000000';
@@ -348,23 +362,40 @@ export default function App() {
                     Choose a Category
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {CATEGORIES.map((cat) => (
-                      <button
-                        key={cat.id}
-                        onClick={() => setCategory(cat.id)}
-                        className={cn(
-                          "flex items-center gap-2 p-3 rounded-xl border-2 transition-all text-left",
-                          category === cat.id 
-                            ? "border-emerald-500 bg-emerald-500/10" 
-                            : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
-                        )}
-                      >
-                        <div className={cn("p-1.5 rounded-lg shrink-0", cat.color, "text-zinc-950")}>
-                          {React.cloneElement(cat.icon as React.ReactElement, { className: "w-4 h-4" })}
-                        </div>
-                        <span className="font-bold text-xs leading-tight truncate">{cat.label}</span>
-                      </button>
-                    ))}
+                    {CATEGORIES.map((cat, index) => {
+                      const isSelected = category === cat.id;
+                      const isSurprise = index === 0;
+                      
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setCategory(cat.id)}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left group relative overflow-hidden",
+                            isSelected 
+                              ? cn(cat.activeBorder, cat.activeBg) 
+                              : "border-zinc-800 bg-zinc-900 hover:border-zinc-700",
+                            isSurprise && "col-span-2 justify-center py-4",
+                            isSurprise && !isSelected && "bg-zinc-900/50 hover:border-purple-500/30"
+                          )}
+                        >
+                          <div className={cn(
+                            "p-2 rounded-lg shrink-0 transition-all duration-300 group-hover:scale-110 relative z-10",
+                            cat.color, 
+                            "text-zinc-950 shadow-lg shadow-black/20"
+                          )}>
+                            {React.cloneElement(cat.icon as React.ReactElement, { className: "w-4 h-4" })}
+                          </div>
+                          <span className={cn(
+                            "font-display uppercase tracking-wide leading-tight truncate relative z-10 transition-colors",
+                            isSurprise ? "text-sm" : "text-[10px]",
+                            isSelected ? cat.activeText : "text-zinc-100"
+                          )}>
+                            {cat.label}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </section>
               </div>
@@ -406,17 +437,36 @@ export default function App() {
               </div>
 
               {/* Result Card (UI View) */}
-              <div className="flex-1 min-h-[220px] bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink">
-                <div className="flex-1 relative bg-white min-h-0">
+              <div className="flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink relative">
+                <div className="flex-1 relative bg-white min-h-0 flex flex-col">
                   {imageUrl ? (
-                    <motion.img
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      src={imageUrl}
-                      alt="Comparison"
-                      className="w-full h-full object-contain p-4"
-                      referrerPolicy="no-referrer"
-                    />
+                    <div className="flex-1 flex flex-col p-4 sm:p-5 text-center bg-white min-h-0">
+                      <div className="shrink-0">
+                        <div className="text-zinc-950 text-[10px] font-bold mb-1">iLifted</div>
+                        <div className="text-zinc-950 text-2xl font-bold leading-none">{weight} {unit}</div>
+                        <div className="text-zinc-400 text-[8px] font-mono uppercase tracking-widest mt-1">Total Weight Lifted</div>
+                      </div>
+                      
+                      <div className="flex-1 min-h-0 w-full flex items-center justify-center my-3 overflow-hidden rounded-xl bg-zinc-50/50">
+                        <motion.img
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          src={imageUrl}
+                          alt="Comparison"
+                          className="max-w-full max-h-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+
+                      <div className="shrink-0">
+                        <div className="text-emerald-500 text-sm sm:text-base font-bold leading-tight px-2">
+                          That's like lifting {result.shortDescription}!
+                        </div>
+                        <div className="text-zinc-400 text-[7px] font-medium mt-1">
+                          Generated by iLifted AI
+                        </div>
+                      </div>
+                    </div>
                   ) : imageLoading ? (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
                       <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
@@ -425,72 +475,86 @@ export default function App() {
                       </p>
                     </div>
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                    <div className="w-full h-full flex flex-col items-center justify-between p-6 text-center bg-white">
+                      <div className="text-zinc-950 text-base font-bold">iLifted</div>
+                      
                       <div className="space-y-1">
-                        <div className="text-zinc-400 text-[10px] font-mono uppercase tracking-widest">Total Lifted</div>
-                        <div className="text-zinc-950 text-4xl font-display">{weight} {unit}</div>
+                        <div className="text-zinc-950 text-4xl font-bold leading-none">{weight} {unit}</div>
+                        <div className="text-zinc-400 text-[8px] font-mono uppercase tracking-widest">Total Weight Lifted</div>
                       </div>
-                      <div className="w-8 h-px bg-zinc-100" />
-                      <button
-                        onClick={handleGenerateImage}
-                        className="group flex flex-col items-center gap-2"
-                      >
-                        <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
-                          <Sparkles className="w-6 h-6 text-emerald-500" />
+
+                      <div className="px-2">
+                        <div className="text-emerald-500 text-xl font-bold leading-tight">
+                          That's like lifting {result.shortDescription}!
                         </div>
-                        <span className="text-zinc-950 text-xs font-bold">Show me!</span>
-                        <span className="text-zinc-400 text-[8px] uppercase tracking-widest">Generate AI Visual</span>
-                      </button>
+                      </div>
+
+                      <div className="text-zinc-300 text-[8px] font-medium">
+                        Generated by iLifted AI
+                      </div>
                     </div>
                   )}
                 </div>
-                
-                {/* Card Footer with Weight & Short Desc */}
-                <div className="p-3 bg-white border-t border-zinc-100 flex flex-col items-center text-center gap-0.5 shrink-0">
-                  <div className="text-zinc-950 text-base font-bold truncate w-full">
-                    I lifted a total of {weight} {unit}
-                  </div>
-                  <div className="text-zinc-500 text-xs truncate w-full">
-                    That's like lifting {result.shortDescription}!
-                  </div>
-                  <div className="mt-1 text-[8px] font-sans font-bold text-emerald-500 tracking-widest">
-                    iLifted
-                  </div>
-                </div>
               </div>
 
+              {/* Show Me Button (Outside Card) */}
+              {!imageUrl && !imageLoading && (
+                <div className="px-4 py-2 space-y-2">
+                  {error && (
+                    <p className="text-red-400 text-[10px] font-medium text-center animate-pulse">
+                      {error}
+                    </p>
+                  )}
+                  <button
+                    onClick={handleGenerateImage}
+                    className="relative w-full group overflow-hidden rounded-xl p-[2px] transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    {/* Chasing Glow Background */}
+                    <div className="absolute inset-[-1000%] animate-rotate bg-[conic-gradient(from_90deg_at_50%_50%,#10b981_0%,#3b82f6_25%,#10b981_50%,#3b82f6_75%,#10b981_100%)] opacity-40" />
+                    
+                    <div className="relative flex items-center justify-center gap-2 bg-zinc-900 rounded-[10px] py-3 px-6 transition-colors group-hover:bg-zinc-800">
+                      <Sparkles className="w-4 h-4 text-emerald-500" />
+                      <span className="text-zinc-100 text-sm font-display uppercase tracking-widest">Show me!</span>
+                      <span className="text-zinc-500 text-[8px] font-mono uppercase tracking-widest ml-1 opacity-50">AI Visual</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+
               {/* Actions */}
-              <div className="grid grid-cols-2 gap-2 w-full shrink-0">
+              <div className="grid grid-cols-2 gap-2 w-full shrink-0 pt-1">
                 <button
                   onClick={handleShare}
-                  className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 text-xs font-bold py-3 rounded-xl hover:bg-white transition-colors"
+                  className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 text-[10px] font-display uppercase tracking-widest py-2.5 rounded-xl hover:bg-white transition-colors"
                 >
-                  <Share2 className="w-4 h-4" />
+                  <Share2 className="w-3.5 h-3.5" />
                   Share
                 </button>
                 <button
                   onClick={handleDownload}
-                  className="flex items-center justify-center gap-2 bg-zinc-800 text-zinc-100 text-xs font-bold py-3 rounded-xl hover:bg-zinc-700 transition-colors"
+                  className="flex items-center justify-center gap-2 bg-zinc-800 text-zinc-100 text-[10px] font-display uppercase tracking-widest py-2.5 rounded-xl hover:bg-zinc-700 transition-colors"
                 >
-                  <Download className="w-4 h-4" />
+                  <Download className="w-3.5 h-3.5" />
                   Save
                 </button>
               </div>
 
-              <button
-                onClick={reset}
-                className="w-full flex items-center justify-center gap-2 text-zinc-500 text-xs font-bold py-1.5 hover:text-zinc-100 transition-colors shrink-0"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Try Another Lift
-              </button>
+              <div className="flex justify-center shrink-0">
+                <button
+                  onClick={reset}
+                  className="flex items-center gap-2 text-zinc-500 text-[9px] font-display uppercase tracking-widest py-1 hover:text-zinc-100 transition-colors"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                  Try Another Lift
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto py-2 text-center shrink-0">
+      <footer className="py-2 text-center shrink-0">
         <p className="text-[8px] font-mono tracking-[0.2em] text-zinc-600">
           Powered by Gemini AI • iLifted v1.5
         </p>
