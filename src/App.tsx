@@ -97,51 +97,52 @@ export default function App() {
     ctx.fillStyle = '#ffffff'; // white
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Branding (Top Left)
+    // Draw Branding (Aligned with image left edge)
+    const imgSize = 600;
+    const imgX = (canvas.width - imgSize) / 2; // 240
+    const imgY = 220;
+
     ctx.fillStyle = '#000000';
     ctx.textAlign = 'left';
-    ctx.font = 'bold 60px Inter';
-    ctx.fillText('iLifted', 80, 120);
+    ctx.font = 'bold 50px Inter';
+    ctx.fillText('iLifted', imgX, 140);
 
     // Draw AI Image (centered)
-    const imgSize = 600;
-    const imgX = (canvas.width - imgSize) / 2;
-    const imgY = 200;
-    
     ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
 
     // Text Styling
     ctx.textAlign = 'center';
+    const textMaxWidth = imgSize; // No text wider than the image
+    const centerX = canvas.width / 2;
 
     // "I lifted a total of [weight] [unit]"
     ctx.fillStyle = '#000000';
-    ctx.font = 'bold 70px Inter';
-    ctx.fillText(`I lifted a total of ${weight} ${unit}`, canvas.width / 2, 850);
+    ctx.font = 'bold 65px Inter';
+    ctx.fillText(`I lifted a total of ${weight} ${unit}`, centerX, 880);
 
     // "That's like lifting [shortDescription]!"
     ctx.fillStyle = '#71717a'; // zinc-500
-    ctx.font = '45px Inter';
+    ctx.font = '42px Inter';
     
     const text = `That's like lifting ${result.shortDescription}!`;
-    const maxWidth = 920; // Leave some margin
-    const lineHeight = 55;
+    const lineHeight = 52;
     const words = text.split(' ');
     let line = '';
-    let currentY = 940;
+    let currentY = 960;
 
     for (let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
       const metrics = ctx.measureText(testLine);
       const testWidth = metrics.width;
-      if (testWidth > maxWidth && n > 0) {
-        ctx.fillText(line, canvas.width / 2, currentY);
+      if (testWidth > textMaxWidth && n > 0) {
+        ctx.fillText(line, centerX, currentY);
         line = words[n] + ' ';
         currentY += lineHeight;
       } else {
         line = testLine;
       }
     }
-    ctx.fillText(line, canvas.width / 2, currentY);
+    ctx.fillText(line, centerX, currentY);
 
     return canvas.toDataURL('image/png');
   };
@@ -193,13 +194,13 @@ export default function App() {
   };
 
   return (
-    <div className="h-[100dvh] flex flex-col max-w-md mx-auto p-4 overflow-hidden bg-zinc-950 text-zinc-100">
+    <div className="h-[100dvh] sm:h-[850px] sm:my-auto flex flex-col max-w-md mx-auto p-4 overflow-hidden bg-zinc-950 text-zinc-100 sm:rounded-[3rem] sm:border-[8px] sm:border-zinc-900 shadow-2xl relative">
       {/* Hidden canvas for card generation */}
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Header */}
-      <header className="mb-4 pt-1 shrink-0">
-        <div className="flex items-center gap-2 mb-0.5">
+      <header className="mb-2 pt-1 shrink-0">
+        <div className="flex items-center gap-2 mb-2">
           <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center brutal-border">
             <Dumbbell className="text-zinc-950 w-5 h-5" />
           </div>
@@ -212,17 +213,17 @@ export default function App() {
         </p>
       </header>
 
-      <main className="flex-1 flex flex-col justify-center min-h-0">
+      <main className="flex-1 flex flex-col justify-start min-h-0 pt-2">
         <AnimatePresence mode="wait">
           {!result ? (
             <motion.div
               key="input-form"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex-1 flex flex-col justify-center space-y-4 overflow-hidden"
+              exit={{ opacity: 0, y: -10 }}
+              className="flex-1 flex flex-col justify-start overflow-hidden"
             >
-              <div className="flex-1 flex flex-col justify-center space-y-6 overflow-y-auto pr-1">
+              <div className="flex flex-col justify-start space-y-6 overflow-y-auto pr-1 pb-4">
                 {/* Weight Input */}
                 <section>
                   <label className="block text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
@@ -299,7 +300,7 @@ export default function App() {
               <button
                 onClick={handleCompare}
                 disabled={loading || !weight}
-                className="w-full brutal-btn py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0"
+                className="w-full brutal-btn py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0 mt-auto mb-2"
               >
                 {loading ? (
                   <>
