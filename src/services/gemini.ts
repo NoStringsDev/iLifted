@@ -37,51 +37,82 @@ export async function getWeightComparison(weight: number, unit: string, category
   - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "elephant" or "vespa".
   - "items": A list containing only that one item.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          message: { type: Type.STRING },
-          shortDescription: { type: Type.STRING },
-          imagePrompt: { type: Type.STRING },
-          objectTag: { type: Type.STRING },
-          items: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          }
-        },
-        required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
-      }
-    }
-  });
+  const maxRetries = 3;
+  let lastError: any = null;
 
-  return JSON.parse(response.text || "{}") as ComparisonResult;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              message: { type: Type.STRING },
+              shortDescription: { type: Type.STRING },
+              imagePrompt: { type: Type.STRING },
+              objectTag: { type: Type.STRING },
+              items: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
+          }
+        }
+      });
+
+      return JSON.parse(response.text || "{}") as ComparisonResult;
+    } catch (error: any) {
+      lastError = error;
+      // If it's a 503 or 429, wait and retry
+      if (error.message?.includes("503") || error.message?.includes("429") || error.message?.includes("UNAVAILABLE")) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error("Failed to get comparison after retries");
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
   const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-image",
-    contents: {
-      parts: [{ text: `A high-quality, photorealistic studio shot of: ${prompt}. Professional product photography, clean solid light gray background, sharp focus, natural lighting, highly detailed, 8k resolution, no text.` }]
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: "1:1",
-      }
-    }
-  });
+  const maxRetries = 2;
+  let lastError: any = null;
 
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: {
+          parts: [{ text: `A high-quality, photorealistic studio shot of: ${prompt}. Professional product photography, clean solid light gray background, sharp focus, natural lighting, highly detailed, 8k resolution, no text.` }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+          }
+        }
+      });
+
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          return `data:image/png;base64,${part.inlineData.data}`;
+        }
+      }
+    } catch (error: any) {
+      lastError = error;
+      if (error.message?.includes("503") || error.message?.includes("UNAVAILABLE")) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+        continue;
+      }
+      throw error;
     }
   }
   
-  throw new Error("Failed to generate image");
+  throw lastError || new Error("Failed to generate image");
 }

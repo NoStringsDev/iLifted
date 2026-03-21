@@ -38,6 +38,7 @@ export default function App() {
   const [unit, setUnit] = useState<'kg' | 'lbs'>('kg');
   const [category, setCategory] = useState<Category>('living things');
   const [loading, setLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,18 +54,15 @@ export default function App() {
     setError(null);
     setResult(null);
     setImageUrl(null);
+    setImageLoading(false);
 
     try {
       const comparison = await getWeightComparison(Number(weight), unit, category);
       setResult(comparison);
-      setLoading(false); // Show text result immediately
-      
-      // Background image generation
-      const img = await generateComparisonImage(comparison.imagePrompt);
-      setImageUrl(img);
+      setLoading(false);
       
       confetti({
-        particleCount: 150,
+        particleCount: 100,
         spread: 70,
         origin: { y: 0.6 },
         colors: ['#10b981', '#3b82f6', '#f59e0b']
@@ -76,18 +74,42 @@ export default function App() {
     }
   };
 
+  const handleGenerateImage = async () => {
+    if (!result) return;
+    setImageLoading(true);
+    setError(null);
+
+    try {
+      const imagePromise = generateComparisonImage(result.imagePrompt);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("IMAGE_TIMEOUT")), 45000)
+      );
+
+      const img = await Promise.race([imagePromise, timeoutPromise]) as string;
+      setImageUrl(img);
+      setImageLoading(false);
+      
+      confetti({
+        particleCount: 50,
+        spread: 50,
+        origin: { y: 0.5 },
+        colors: ['#10b981', '#3b82f6']
+      });
+    } catch (err: any) {
+      console.error("Image generation failed or timed out:", err);
+      setError(err.message === "IMAGE_TIMEOUT" 
+        ? "Image generation timed out. The free tier is a bit busy, try again in a moment!" 
+        : "Failed to generate image. Try again?");
+      setImageLoading(false);
+    }
+  };
+
   const generateCardImage = async (): Promise<string | null> => {
-    if (!imageUrl || !result || !canvasRef.current) return null;
+    if (!result || !canvasRef.current) return null;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-
-    // Load AI image
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl;
-    await new Promise((resolve) => (img.onload = resolve));
 
     // Set canvas size (1080x1080 for square shareable card)
     canvas.width = 1080;
@@ -97,52 +119,106 @@ export default function App() {
     ctx.fillStyle = '#ffffff'; // white
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Branding (Aligned with image left edge)
-    const imgSize = 600;
-    const imgX = (canvas.width - imgSize) / 2; // 240
-    const imgY = 220;
-
-    ctx.fillStyle = '#000000';
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 50px Inter';
-    ctx.fillText('iLifted', imgX, 140);
-
-    // Draw AI Image (centered)
-    ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
-
-    // Text Styling
-    ctx.textAlign = 'center';
-    const textMaxWidth = imgSize; // No text wider than the image
     const centerX = canvas.width / 2;
 
-    // "I lifted a total of [weight] [unit]"
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 65px Inter';
-    ctx.fillText(`I lifted a total of ${weight} ${unit}`, centerX, 880);
+    if (imageUrl) {
+      // Load AI image
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = imageUrl;
+      await new Promise((resolve) => (img.onload = resolve));
 
-    // "That's like lifting [shortDescription]!"
-    ctx.fillStyle = '#71717a'; // zinc-500
-    ctx.font = '42px Inter';
-    
-    const text = `That's like lifting ${result.shortDescription}!`;
-    const lineHeight = 52;
-    const words = text.split(' ');
-    let line = '';
-    let currentY = 960;
+      // Draw Branding
+      const imgSize = 600;
+      const imgX = (canvas.width - imgSize) / 2;
+      const imgY = 220;
 
-    for (let n = 0; n < words.length; n++) {
-      const testLine = line + words[n] + ' ';
-      const metrics = ctx.measureText(testLine);
-      const testWidth = metrics.width;
-      if (testWidth > textMaxWidth && n > 0) {
-        ctx.fillText(line, centerX, currentY);
-        line = words[n] + ' ';
-        currentY += lineHeight;
-      } else {
-        line = testLine;
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 50px Inter';
+      ctx.fillText('iLifted', imgX, 140);
+
+      // Draw AI Image
+      ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
+
+      // Text Styling
+      ctx.textAlign = 'center';
+      const textMaxWidth = imgSize;
+
+      // "I lifted a total of [weight] [unit]"
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 65px Inter';
+      ctx.fillText(`I lifted a total of ${weight} ${unit}`, centerX, 880);
+
+      // "That's like lifting [shortDescription]!"
+      ctx.fillStyle = '#71717a'; // zinc-500
+      ctx.font = '42px Inter';
+      
+      const text = `That's like lifting ${result.shortDescription}!`;
+      const lineHeight = 52;
+      const words = text.split(' ');
+      let line = '';
+      let currentY = 960;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > textMaxWidth && n > 0) {
+          ctx.fillText(line, centerX, currentY);
+          line = words[n] + ' ';
+          currentY += lineHeight;
+        } else {
+          line = testLine;
+        }
       }
+      ctx.fillText(line, centerX, currentY);
+    } else {
+      // TEXT ONLY VERSION
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      
+      // Branding
+      ctx.font = 'bold 60px Inter';
+      ctx.fillText('iLifted', centerX, 150);
+
+      // Main Weight
+      ctx.font = 'bold 120px Inter';
+      ctx.fillText(`${weight} ${unit}`, centerX, 450);
+      
+      ctx.font = '40px Inter';
+      ctx.fillStyle = '#71717a';
+      ctx.fillText('TOTAL WEIGHT LIFTED', centerX, 520);
+
+      // Comparison
+      ctx.fillStyle = '#10b981'; // emerald-500
+      ctx.font = 'italic bold 80px Inter';
+      
+      const text = `That's like lifting ${result.shortDescription}!`;
+      const lineHeight = 100;
+      const words = text.split(' ');
+      let line = '';
+      let currentY = 750;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > 900 && n > 0) {
+          ctx.fillText(line, centerX, currentY);
+          line = words[n] + ' ';
+          currentY += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, centerX, currentY);
+
+      // Footer
+      ctx.fillStyle = '#a1a1aa';
+      ctx.font = '30px Inter';
+      ctx.fillText('Generated by iLifted AI', centerX, 1000);
     }
-    ctx.fillText(line, centerX, currentY);
 
     return canvas.toDataURL('image/png');
   };
@@ -330,7 +406,7 @@ export default function App() {
               </div>
 
               {/* Result Card (UI View) */}
-              <div className="flex-1 min-h-[200px] bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink">
+              <div className="flex-1 min-h-[220px] bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink">
                 <div className="flex-1 relative bg-white min-h-0">
                   {imageUrl ? (
                     <motion.img
@@ -341,12 +417,30 @@ export default function App() {
                       className="w-full h-full object-contain p-4"
                       referrerPolicy="no-referrer"
                     />
-                  ) : (
+                  ) : imageLoading ? (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
                       <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
                       <p className="text-zinc-500 font-mono text-[8px] uppercase tracking-widest">
                         Visualizing your strength...
                       </p>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                      <div className="space-y-1">
+                        <div className="text-zinc-400 text-[10px] font-mono uppercase tracking-widest">Total Lifted</div>
+                        <div className="text-zinc-950 text-4xl font-display">{weight} {unit}</div>
+                      </div>
+                      <div className="w-8 h-px bg-zinc-100" />
+                      <button
+                        onClick={handleGenerateImage}
+                        className="group flex flex-col items-center gap-2"
+                      >
+                        <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                          <Sparkles className="w-6 h-6 text-emerald-500" />
+                        </div>
+                        <span className="text-zinc-950 text-xs font-bold">Show me!</span>
+                        <span className="text-zinc-400 text-[8px] uppercase tracking-widest">Generate AI Visual</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -369,16 +463,14 @@ export default function App() {
               <div className="grid grid-cols-2 gap-2 w-full shrink-0">
                 <button
                   onClick={handleShare}
-                  disabled={!imageUrl}
-                  className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 text-xs font-bold py-3 rounded-xl hover:bg-white transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 text-xs font-bold py-3 rounded-xl hover:bg-white transition-colors"
                 >
                   <Share2 className="w-4 h-4" />
                   Share
                 </button>
                 <button
                   onClick={handleDownload}
-                  disabled={!imageUrl}
-                  className="flex items-center justify-center gap-2 bg-zinc-800 text-zinc-100 text-xs font-bold py-3 rounded-xl hover:bg-zinc-700 transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 bg-zinc-800 text-zinc-100 text-xs font-bold py-3 rounded-xl hover:bg-zinc-700 transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   Save
