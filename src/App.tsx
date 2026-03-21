@@ -116,12 +116,32 @@ export default function App() {
     // "I lifted a total of [weight] [unit]"
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 70px Inter';
-    ctx.fillText(`I lifted a total of ${weight} ${unit}`, canvas.width / 2, 880);
+    ctx.fillText(`I lifted a total of ${weight} ${unit}`, canvas.width / 2, 850);
 
     // "That's like lifting [shortDescription]!"
     ctx.fillStyle = '#71717a'; // zinc-500
-    ctx.font = '50px Inter';
-    ctx.fillText(`That's like lifting ${result.shortDescription}!`, canvas.width / 2, 980);
+    ctx.font = '45px Inter';
+    
+    const text = `That's like lifting ${result.shortDescription}!`;
+    const maxWidth = 920; // Leave some margin
+    const lineHeight = 55;
+    const words = text.split(' ');
+    let line = '';
+    let currentY = 940;
+
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      const testWidth = metrics.width;
+      if (testWidth > maxWidth && n > 0) {
+        ctx.fillText(line, canvas.width / 2, currentY);
+        line = words[n] + ' ';
+        currentY += lineHeight;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, canvas.width / 2, currentY);
 
     return canvas.toDataURL('image/png');
   };
