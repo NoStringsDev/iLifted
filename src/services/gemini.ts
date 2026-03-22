@@ -38,8 +38,8 @@ export async function getWeightComparison(weight: number, unit: string, category
     * NEVER use first person ("I just...", "I lifted...").
     * NEVER include the weight or numbers in this message.
     * Example: "Holy smokes! You just hoisted a newborn baby elephant like it was a rubber ducky!"
-  - "shortDescription": A very short summary, e.g., "a newborn baby elephant". NEVER include weights or numbers here.
-  - "imagePrompt": A detailed prompt for an image generator showing the item.
+  - "shortDescription": The name of the item ONLY, e.g., "A newborn baby elephant". No extra words like "That's like lifting...". Just the item name.
+  - "imagePrompt": A detailed prompt for an image generator showing the item. Ensure the prompt describes a centered, square-composition subject.
   - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "elephant" or "vespa".
   - "items": A list containing only that one item.
   
@@ -114,8 +114,8 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   4. Return ONLY a JSON object:
   {
     "message": "Punchy celebratory message TO the user (2nd person)",
-    "shortDescription": "Very short summary (e.g. 'a baby elephant')",
-    "imagePrompt": "Detailed prompt for an image generator",
+    "shortDescription": "The name of the item ONLY (e.g. 'A baby elephant')",
+    "imagePrompt": "Detailed prompt for an image generator (centered, square composition)",
     "objectTag": "singlewordtag",
     "items": ["item name"]
   }
@@ -148,7 +148,7 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
 async function generatePollinationsImage(prompt: string): Promise<string> {
   // Clean the prompt to remove any characters that might break the URL
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
-  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
+  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
   
   // Use a fixed width/height that is known to work well
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
@@ -164,7 +164,7 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
       contents: {
-        parts: [{ text: `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.` }]
+        parts: [{ text: `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.` }]
       },
       config: {
         imageConfig: {

@@ -35,20 +35,45 @@ const CATEGORIES: { id: Category; label: string; icon: React.ReactNode; color: s
 export default function App() {
   const [weight, setWeight] = useState<string>('');
   const [unit, setUnit] = useState<'kg' | 'lbs'>('kg');
-  const [category, setCategory] = useState<Category>('surprise me');
+  const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const comparisonTextRef = useRef<HTMLDivElement>(null);
+  const comparisonContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleCompare = async () => {
+  // Dynamic font scaling for the UI
+  React.useEffect(() => {
+    if (result && (imageUrl || !imageLoading)) {
+      const container = comparisonContainerRef.current;
+      const text = comparisonTextRef.current;
+      if (!container || !text) return;
+
+      let size = imageUrl ? 22 : 36; // Slightly smaller start for image card
+      text.style.fontSize = `${size}px`;
+      
+      // Use a small delay to ensure layout has settled
+      const timeout = setTimeout(() => {
+        // Force a reflow check
+        while (text.scrollHeight > container.clientHeight && size > 8) {
+          size -= 0.5;
+          text.style.fontSize = `${size}px`;
+        }
+      }, 100);
+      return () => clearTimeout(timeout);
+    }
+  }, [result, imageUrl, imageLoading]);
+
+  const handleCompare = async (selectedCategory: Category) => {
     if (!weight || isNaN(Number(weight))) {
-      setError('Please enter a valid weight');
+      setError('Please enter a weight first!');
       return;
     }
 
+    setCategory(selectedCategory);
     setLoading(true);
     setError(null);
     setResult(null);
@@ -56,7 +81,7 @@ export default function App() {
     setImageLoading(false);
 
     try {
-      const comparison = await getWeightComparison(Number(weight), unit, category);
+      const comparison = await getWeightComparison(Number(weight), unit, selectedCategory);
       setResult(comparison);
       setLoading(false);
       
@@ -69,9 +94,9 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       if (err.message === "QUOTA_EXCEEDED_MINUTE") {
-        setError("Sorry, our AI is resting between sets. Try again in a minute!");
+        setError("AI is resting between sets. Try again in a minute!");
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("The model has hit its max reps for the day and is hitting the showers. Try again tomorrow!");
+        setError("The model hit its max reps for the day. Try again tomorrow!");
       } else {
         setError(err.message || 'Something went wrong. Please try again.');
       }
@@ -122,15 +147,38 @@ export default function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    // Set canvas size (1080x1080 for square shareable card)
+    // Set canvas size (1080x1440 for 4:3 portrait shareable card)
     canvas.width = 1080;
-    canvas.height = 1080;
+    canvas.height = 1440;
 
     // Background
     ctx.fillStyle = '#ffffff'; // white
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Draw neat border
+    ctx.strokeStyle = '#f4f4f5'; // zinc-100
+    ctx.lineWidth = 40;
+    ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+
     const centerX = canvas.width / 2;
+
+    const drawBranding = (y: number, fontSize: number, opacity: number = 1) => {
+      ctx.font = `bold ${fontSize}px Inter`;
+      ctx.textBaseline = 'top';
+      const iWidth = ctx.measureText('i').width;
+      const liftedWidth = ctx.measureText('Lifted').width;
+      const totalWidth = iWidth + liftedWidth;
+      const startX = centerX - totalWidth / 2;
+      
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = '#10b981'; // teal
+      ctx.fillText('i', startX, y);
+      ctx.fillStyle = '#000000'; // black
+      ctx.fillText('Lifted', startX + iWidth, y);
+      ctx.globalAlpha = 1;
+      ctx.textBaseline = 'alphabetic'; // Reset
+    };
 
     if (imageUrl) {
       // Load AI image
@@ -139,99 +187,184 @@ export default function App() {
       img.src = imageUrl;
       await new Promise((resolve) => (img.onload = resolve));
 
-      // Draw Branding
-      ctx.fillStyle = '#000000';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 40px Inter';
-      ctx.fillText('iLifted', centerX, 80);
+      drawBranding(60, 60); // Higher and appropriately sized
 
       // Draw Weight
-      ctx.font = 'bold 60px Inter';
-      ctx.fillText(`${weight} ${unit}`, centerX, 160);
-      ctx.font = '20px Inter';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText('TOTAL WEIGHT LIFTED', centerX, 195);
-
-      // Draw AI Image
-      const imgSize = 520;
-      const imgX = (canvas.width - imgSize) / 2;
-      const imgY = 240;
-      ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
-
-      // Comparison Text (Prominent)
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#10b981'; // emerald-500
-      ctx.font = 'bold 55px Inter';
-      
-      const text = `That's like lifting ${result.shortDescription}!`;
-      const lineHeight = 65;
-      const words = text.split(' ');
-      let line = '';
-      let currentY = 840;
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 80px Inter'; // Smaller weight
+      ctx.fillText(`${weight} ${unit}`, centerX, 180); // Higher
 
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > 900 && n > 0) {
-          ctx.fillText(line, centerX, currentY);
-          line = words[n] + ' ';
-          currentY += lineHeight;
-        } else {
-          line = testLine;
-        }
+      // Draw AI Image - Centered and contained
+      const imgSize = 750; 
+      const imgX = (canvas.width - imgSize) / 2;
+      const imgY = 240; // Higher
+      
+      // Calculate aspect ratio for contain
+      const imgAspect = img.width / img.height;
+      let drawW, drawH, drawX, drawY;
+      
+      if (imgAspect > 1) {
+        drawW = imgSize;
+        drawH = imgSize / imgAspect;
+        drawX = imgX;
+        drawY = imgY + (imgSize - drawH) / 2;
+      } else {
+        drawW = imgSize * imgAspect;
+        drawH = imgSize;
+        drawX = imgX + (imgSize - drawW) / 2;
+        drawY = imgY;
       }
-      ctx.fillText(line, centerX, currentY);
+
+      // Draw image with rounded corners (clipping)
+      ctx.save();
+      const radius = 40;
+      ctx.beginPath();
+      ctx.moveTo(imgX + radius, imgY);
+      ctx.lineTo(imgX + imgSize - radius, imgY);
+      ctx.quadraticCurveTo(imgX + imgSize, imgY, imgX + imgSize, imgY + radius);
+      ctx.lineTo(imgX + imgSize, imgY + imgSize - radius);
+      ctx.quadraticCurveTo(imgX + imgSize, imgY + imgSize, imgX + imgSize - radius, imgY + imgSize);
+      ctx.lineTo(imgX + radius, imgY + imgSize);
+      ctx.quadraticCurveTo(imgX, imgY + imgSize, imgX, imgY + imgSize - radius);
+      ctx.lineTo(imgX, imgY + radius);
+      ctx.quadraticCurveTo(imgX, imgY, imgX + radius, imgY);
+      ctx.closePath();
+      ctx.clip();
+      
+      // Fill background for the image area
+      ctx.fillStyle = '#f9fafb';
+      ctx.fill();
+      
+      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      ctx.restore();
+
+      // Comparison Text Area - Scale to fit remaining space
+      const textAreaY = imgY + imgSize + 40;
+      const availableHeight = 1340 - textAreaY; // More conservative to avoid footer
+      
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#10b981'; // emerald-500
+      
+      // Short text for share card: just the item
+      const text = result.shortDescription;
+      
+      // Helper to wrap and scale text
+      const wrapText = (txt: string, maxW: number) => {
+        const words = txt.split(' ');
+        const lines = [];
+        let currentLine = words[0];
+        for (let i = 1; i < words.length; i++) {
+          const word = words[i];
+          const width = ctx.measureText(currentLine + " " + word).width;
+          if (width < maxW) {
+            currentLine += " " + word;
+          } else {
+            lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        lines.push(currentLine);
+        return lines;
+      };
+
+      let fontSize = 90;
+      ctx.font = `bold ${fontSize}px Inter`;
+      let lines = wrapText(text, 900);
+      
+      while ((lines.length * fontSize * 1.2 > availableHeight) && fontSize > 16) {
+        fontSize -= 2;
+        ctx.font = `bold ${fontSize}px Inter`;
+        lines = wrapText(text, 900);
+      }
+
+      const lineHeight = fontSize * 1.2;
+      let currentY = textAreaY + (availableHeight - (lines.length * lineHeight)) / 2 + lineHeight / 2;
+
+      lines.forEach(line => {
+        ctx.fillText(line, centerX, currentY);
+        currentY += lineHeight;
+      });
+      ctx.textBaseline = 'alphabetic'; // Reset
 
       // Footer
       ctx.fillStyle = '#a1a1aa';
       ctx.font = '25px Inter';
-      ctx.fillText('Generated by iLifted AI', centerX, 1030);
+      ctx.fillText('Generated by iLifted AI', centerX, 1380);
     } else {
       // TEXT ONLY VERSION
+      drawBranding(80, 80); // Higher and appropriately sized
+
+      // Main Weight - Scale to fit
       ctx.fillStyle = '#000000';
       ctx.textAlign = 'center';
-      
-      // Branding
-      ctx.font = 'bold 60px Inter';
-      ctx.fillText('iLifted', centerX, 150);
-
-      // Main Weight
-      ctx.font = 'bold 120px Inter';
-      ctx.fillText(`${weight} ${unit}`, centerX, 450);
-      
-      ctx.font = '40px Inter';
-      ctx.fillStyle = '#71717a';
-      ctx.fillText('TOTAL WEIGHT LIFTED', centerX, 520);
-
-      // Comparison
-      ctx.fillStyle = '#10b981'; // emerald-500
-      ctx.font = 'italic bold 80px Inter';
-      
-      const text = `That's like lifting ${result.shortDescription}!`;
-      const lineHeight = 100;
-      const words = text.split(' ');
-      let line = '';
-      let currentY = 750;
-
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > 900 && n > 0) {
-          ctx.fillText(line, centerX, currentY);
-          line = words[n] + ' ';
-          currentY += lineHeight;
-        } else {
-          line = testLine;
-        }
+      let weightFontSize = 180; // Smaller weight
+      ctx.font = `bold ${weightFontSize}px Inter`;
+      while (ctx.measureText(`${weight} ${unit}`).width > 900 && weightFontSize > 100) {
+        weightFontSize -= 10;
+        ctx.font = `bold ${weightFontSize}px Inter`;
       }
-      ctx.fillText(line, centerX, currentY);
+      ctx.fillText(`${weight} ${unit}`, centerX, 250); // Higher
+      
+      // Divider
+      ctx.beginPath();
+      ctx.moveTo(centerX - 150, 350); // Higher
+      ctx.lineTo(centerX + 150, 350);
+      ctx.strokeStyle = '#10b981'; // teal divider
+      ctx.lineWidth = 12;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Comparison - Scale to fit central area
+      const textAreaY = 450; // Higher
+      const availableHeight = 1340 - textAreaY; // More conservative
+      
+      ctx.fillStyle = '#10b981'; // emerald-500
+      ctx.textBaseline = 'middle';
+      const text = result.shortDescription;
+      
+      const wrapText = (txt: string, maxW: number) => {
+        const words = txt.split(' ');
+        const lines = [];
+        let currentLine = words[0];
+        for (let i = 1; i < words.length; i++) {
+          const word = words[i];
+          const width = ctx.measureText(currentLine + " " + word).width;
+          if (width < maxW) {
+            currentLine += " " + word;
+          } else {
+            lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        lines.push(currentLine);
+        return lines;
+      };
+
+      let fontSize = 140;
+      ctx.font = `bold ${fontSize}px Inter`;
+      let lines = wrapText(text, 900);
+      
+      while ((lines.length * fontSize * 1.2 > availableHeight) && fontSize > 24) {
+        fontSize -= 5;
+        ctx.font = `bold ${fontSize}px Inter`;
+        lines = wrapText(text, 900);
+      }
+
+      const lineHeight = fontSize * 1.2;
+      let currentY = textAreaY + (availableHeight - (lines.length * lineHeight)) / 2 + lineHeight / 2;
+
+      lines.forEach(line => {
+        ctx.fillText(line, centerX, currentY);
+        currentY += lineHeight;
+      });
+      ctx.textBaseline = 'alphabetic'; // Reset
 
       // Footer
       ctx.fillStyle = '#a1a1aa';
       ctx.font = '30px Inter';
-      ctx.fillText('Generated by iLifted AI', centerX, 1000);
+      ctx.fillText('Generated by iLifted AI', centerX, 1400);
     }
 
     return canvas.toDataURL('image/png');
@@ -281,12 +414,54 @@ export default function App() {
     setResult(null);
     setImageUrl(null);
     setWeight('');
+    setCategory(null);
   };
 
   return (
     <div className="h-[100dvh] sm:h-[850px] sm:my-auto flex flex-col max-w-md mx-auto p-4 overflow-hidden bg-zinc-950 text-zinc-100 sm:rounded-[3rem] sm:border-[8px] sm:border-zinc-900 shadow-2xl relative">
       {/* Hidden canvas for card generation */}
       <canvas ref={canvasRef} className="hidden" />
+
+      {/* Loading Overlay */}
+      <AnimatePresence>
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-zinc-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-8 text-center"
+          >
+            <motion.div
+              animate={{ 
+                y: [0, -40, 0],
+                rotate: [0, -5, 5, 0]
+              }}
+              transition={{ 
+                duration: 1.5, 
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="mb-8"
+            >
+              <Dumbbell className="w-20 h-20 text-emerald-400" />
+            </motion.div>
+            <h3 className="text-xl font-black tracking-tight mb-2 text-emerald-400 uppercase">
+              Calculating Gains...
+            </h3>
+            <p className="text-zinc-400 text-sm font-medium mb-6">
+              Comparing your lift to the weight of the world.
+            </p>
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 30 }}
+              className="text-zinc-600 text-xs italic"
+            >
+              "It's busy in here today, waiting to work in..."
+            </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <header className="mb-2 pt-1 shrink-0">
@@ -303,7 +478,7 @@ export default function App() {
         </p>
       </header>
 
-      <main className="flex-1 flex flex-col justify-start min-h-0 pt-2">
+      <main className="flex-1 flex flex-col justify-center min-h-0 pb-20">
         <AnimatePresence mode="wait">
           {!result ? (
             <motion.div
@@ -311,15 +486,15 @@ export default function App() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="flex-1 flex flex-col justify-start overflow-hidden"
+              className="flex-1 flex flex-col justify-center space-y-12"
             >
-              <div className="flex flex-col justify-start space-y-6 overflow-y-auto pr-1 pb-4">
+              <div className="flex flex-col justify-center space-y-10">
                 {/* Weight Input */}
                 <section>
-                  <label className="block text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
+                  <label className="block text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-3 text-center">
                     How much did you lift?
                   </label>
-                  <div className="relative group">
+                  <div className="relative group max-w-[280px] mx-auto">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -331,11 +506,11 @@ export default function App() {
                         }
                       }}
                       placeholder="0.0"
-                      className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-2xl px-5 py-4 text-3xl font-display focus:border-emerald-500 focus:outline-none transition-colors"
+                      className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-2xl px-5 py-5 text-4xl font-display text-center focus:border-emerald-500 focus:outline-none transition-colors"
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex bg-zinc-800 rounded-xl p-1">
                       <button
-                        onClick={() => setUnit('kg')}
+                        onClick={(e) => { e.stopPropagation(); setUnit('kg'); }}
                         className={cn(
                           "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
                           unit === 'kg' ? "bg-zinc-100 text-zinc-950" : "text-zinc-400"
@@ -344,7 +519,7 @@ export default function App() {
                         KG
                       </button>
                       <button
-                        onClick={() => setUnit('lbs')}
+                        onClick={(e) => { e.stopPropagation(); setUnit('lbs'); }}
                         className={cn(
                           "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
                           unit === 'lbs' ? "bg-zinc-100 text-zinc-950" : "text-zinc-400"
@@ -358,42 +533,43 @@ export default function App() {
 
                 {/* Category Selector */}
                 <section>
-                  <label className="block text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-3">
-                    Choose a Category
+                  <label className="block text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-4 text-center">
+                    Tap a category to compare
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-3 max-w-[320px] mx-auto">
                     {CATEGORIES.map((cat, index) => {
                       const isSelected = category === cat.id;
                       const isSurprise = index === 0;
                       
                       return (
-                        <button
+                        <motion.button
                           key={cat.id}
-                          onClick={() => setCategory(cat.id)}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleCompare(cat.id)}
                           className={cn(
-                            "flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left group relative overflow-hidden",
+                            "flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left group relative overflow-hidden",
                             isSelected 
                               ? cn(cat.activeBorder, cat.activeBg) 
                               : "border-zinc-800 bg-zinc-900 hover:border-zinc-700",
-                            isSurprise && "col-span-2 justify-center py-4",
+                            isSurprise && "col-span-2 justify-center py-5",
                             isSurprise && !isSelected && "bg-zinc-900/50 hover:border-purple-500/30"
                           )}
                         >
                           <div className={cn(
-                            "p-2 rounded-lg shrink-0 transition-all duration-300 group-hover:scale-110 relative z-10",
+                            "p-2.5 rounded-xl shrink-0 transition-all duration-300 group-hover:scale-110 relative z-10",
                             cat.color, 
                             "text-zinc-950 shadow-lg shadow-black/20"
                           )}>
-                            {React.cloneElement(cat.icon as React.ReactElement, { className: "w-4 h-4" })}
+                            {React.cloneElement(cat.icon as React.ReactElement, { className: "w-5 h-5" })}
                           </div>
                           <span className={cn(
-                            "font-display uppercase tracking-wide leading-tight truncate relative z-10 transition-colors",
-                            isSurprise ? "text-sm" : "text-[10px]",
+                            "font-display uppercase tracking-wide leading-tight relative z-10 transition-colors",
+                            isSurprise ? "text-base" : "text-sm",
                             isSelected ? cat.activeText : "text-zinc-100"
                           )}>
                             {cat.label}
                           </span>
-                        </button>
+                        </motion.button>
                       );
                     })}
                   </div>
@@ -401,33 +577,15 @@ export default function App() {
               </div>
 
               {error && (
-                <p className="text-red-400 text-[10px] font-medium text-center">{error}</p>
+                <p className="text-red-400 text-[10px] font-medium text-center animate-pulse">{error}</p>
               )}
-
-              <button
-                onClick={handleCompare}
-                disabled={loading || !weight}
-                className="w-full brutal-btn py-4 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0 mt-auto mb-2"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Calculating...
-                  </>
-                ) : (
-                  <>
-                    Compare My Lift
-                    <ChevronRight className="w-5 h-5" />
-                  </>
-                )}
-              </button>
             </motion.div>
           ) : (
             <motion.div
               key="result-view"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex-1 flex flex-col min-h-0 space-y-2"
+              className="flex-1 flex flex-col min-h-0 space-y-4"
             >
               {/* Message Above Image */}
               <div className="px-2 text-center shrink-0">
@@ -436,24 +594,25 @@ export default function App() {
                 </h2>
               </div>
 
-              {/* Result Card (UI View) */}
-              <div className="flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-xl flex flex-col mx-auto w-full max-w-[320px] shrink relative">
-                <div className="flex-1 relative bg-white min-h-0 flex flex-col">
+              {/* Result Card (UI View) - 4:3 Aspect Ratio */}
+              <div className="flex-1 min-h-0 bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col mx-auto w-full max-w-[340px] aspect-[3/4] shrink relative border-[12px] border-white">
+                <div className="flex-1 relative bg-white min-h-0 flex flex-col p-6 text-center">
                   {imageUrl ? (
-                    <div className="flex-1 flex flex-col p-4 sm:p-5 text-center bg-white min-h-0">
-                      <div className="shrink-0">
-                        <div className="text-zinc-950 text-[10px] font-bold mb-1">iLifted</div>
-                        <div className="text-zinc-950 text-2xl font-bold leading-none">{weight} {unit}</div>
-                        <div className="text-zinc-400 text-[8px] font-mono uppercase tracking-widest mt-1">Total Weight Lifted</div>
+                    <div className="flex-1 flex flex-col min-h-0 justify-between">
+                      <div className="shrink-0 mb-1">
+                        <div className="text-2xl font-black tracking-tighter mb-0">
+                          <span className="text-emerald-500">i</span><span className="text-zinc-950">Lifted</span>
+                        </div>
+                        <div className="text-zinc-950 text-4xl font-black leading-none tracking-tighter">{weight} {unit}</div>
                       </div>
-                      
-                      <div className="flex-1 min-h-0 w-full flex items-center justify-center my-3 overflow-hidden rounded-xl bg-zinc-50/50">
+
+                      <div className="flex-[5] min-h-[200px] w-full flex items-center justify-center overflow-hidden rounded-2xl bg-zinc-50 border border-zinc-100">
                         <motion.img
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           src={imageUrl}
                           alt="Comparison"
-                          className="max-w-full max-h-full object-contain"
+                          className="w-full h-full object-contain p-2"
                           referrerPolicy="no-referrer"
                           onError={() => {
                             console.error("Image failed to load, falling back to text version");
@@ -463,38 +622,39 @@ export default function App() {
                         />
                       </div>
 
-                      <div className="shrink-0">
-                        <div className="text-emerald-500 text-sm sm:text-base font-bold leading-tight px-2">
-                          That's like lifting {result.shortDescription}!
+                      <div ref={comparisonContainerRef} className="flex-1 flex flex-col justify-center pt-2 min-h-0 overflow-hidden">
+                        <div ref={comparisonTextRef} className="text-emerald-500 font-black leading-tight tracking-tight px-2 text-balance">
+                          That's like lifting {result.shortDescription.charAt(0).toLowerCase() + result.shortDescription.slice(1)}!
                         </div>
-                        <div className="text-zinc-400 text-[7px] font-medium mt-1">
+                        <div className="text-zinc-400 text-[8px] font-bold uppercase tracking-widest mt-1 opacity-50 shrink-0">
                           Generated by iLifted AI
                         </div>
                       </div>
                     </div>
                   ) : imageLoading ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
-                      <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-                      <p className="text-zinc-500 font-mono text-[8px] uppercase tracking-widest">
+                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center gap-4 p-4 text-center">
+                      <div className="relative">
+                        <RefreshCw className="w-12 h-12 text-emerald-500 animate-spin" />
+                      </div>
+                      <p className="text-zinc-500 font-mono text-[10px] uppercase tracking-widest font-bold">
                         Visualizing your strength...
                       </p>
                     </div>
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-between p-6 text-center bg-white">
-                      <div className="text-zinc-950 text-base font-bold">iLifted</div>
-                      
-                      <div className="space-y-1">
-                        <div className="text-zinc-950 text-4xl font-bold leading-none">{weight} {unit}</div>
-                        <div className="text-zinc-400 text-[8px] font-mono uppercase tracking-widest">Total Weight Lifted</div>
+                    <div className="flex-1 w-full h-full flex flex-col items-center justify-between p-6 text-center bg-white">
+                      <div className="text-3xl font-black tracking-tighter mb-1">
+                        <span className="text-emerald-500">i</span><span className="text-zinc-950">Lifted</span>
                       </div>
-
-                      <div className="px-2">
-                        <div className="text-emerald-500 text-xl font-bold leading-tight">
-                          That's like lifting {result.shortDescription}!
+                      
+                      <div className="flex-1 flex flex-col justify-center w-full">
+                        <div className="text-zinc-950 text-5xl font-black leading-none tracking-tighter break-words mb-4">{weight} {unit}</div>
+                        <div className="w-20 h-2 bg-emerald-500 rounded-full mx-auto mb-6" />
+                        <div className="text-emerald-500 text-2xl font-black leading-tight tracking-tight text-balance">
+                          That's like lifting {result.shortDescription.charAt(0).toLowerCase() + result.shortDescription.slice(1)}!
                         </div>
                       </div>
 
-                      <div className="text-zinc-300 text-[8px] font-medium">
+                      <div className="text-zinc-300 text-[10px] font-bold uppercase tracking-widest pt-4">
                         Generated by iLifted AI
                       </div>
                     </div>
