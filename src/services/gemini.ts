@@ -92,11 +92,28 @@ export async function getWeightComparison(weight: number, unit: string, category
   throw lastError || new Error("Failed to get comparison after retries");
 }
 
+async function generatePollinationsImage(prompt: string): Promise<string> {
+  const enhancedPrompt = `${prompt}, high quality, photorealistic, studio shot, clean gray background, sharp focus`;
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+  
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Pollinations fallback failed");
+  
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function generateComparisonImage(prompt: string): Promise<string> {
   const ai = getAIClient();
   const maxRetries = 2;
   let lastError: any = null;
 
+  // Try Gemini first (Higher quality)
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await ai.models.generateContent({
@@ -121,19 +138,30 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
     } catch (error: any) {
       lastError = error;
       const errorMessage = error.message || "";
+      
+      // If it's a quota issue, break the loop and try the fallback immediately
+      if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("Too Many Requests") || errorMessage.includes("exhausted")) {
+        console.warn("Gemini quota hit, switching to Pollinations fallback...");
+        break; 
+      }
+
       if (errorMessage.includes("503") || errorMessage.includes("UNAVAILABLE")) {
         await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
         continue;
-      }
-      if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("Too Many Requests") || errorMessage.includes("exhausted")) {
-        if (errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("daily")) {
-          throw new Error("QUOTA_EXCEEDED_DAY");
-        }
-        throw new Error("QUOTA_EXCEEDED_MINUTE");
       }
       throw error;
     }
   }
   
-  throw lastError || new Error("Failed to generate image");
+  // Fallback to Pollinations (High availability)
+  try {
+    return await generatePollinationsImage(prompt);
+  } catch (fallbackError) {
+    // If fallback also fails, throw the original quota error so the UI shows the gym message
+    const errorMessage = lastError?.message || "";
+    if (errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("daily")) {
+      throw new Error("QUOTA_EXCEEDED_DAY");
+    }
+    throw new Error("QUOTA_EXCEEDED_MINUTE");
+  }
 }
