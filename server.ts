@@ -17,7 +17,7 @@ async function startServer() {
   // Manually register Vercel API routes for local development
   app.post("/api/compare", async (req, res) => {
     try {
-      await compareHandler(req, res);
+      await compareHandler(req as any, res as any);
     } catch (err) {
       console.error("Local API Error (Compare):", err);
       res.status(500).json({ error: "Local API Error" });
@@ -26,7 +26,7 @@ async function startServer() {
 
   app.post("/api/image", async (req, res) => {
     try {
-      await imageHandler(req, res);
+      await imageHandler(req as any, res as any);
     } catch (err) {
       console.error("Local API Error (Image):", err);
       res.status(500).json({ error: "Local API Error" });

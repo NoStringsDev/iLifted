@@ -7,10 +7,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { weight, unit, category } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const customKey = process.env.CUSTOM_GEMINI_KEY;
+  const defaultKey = process.env.GEMINI_API_KEY;
+  const apiKey = customKey || defaultKey;
+
+  console.log(`Comparison Request: ${weight}${unit} - Key Source: ${customKey ? 'CUSTOM_SECRET' : 'DEFAULT_MANAGED'}`);
 
   if (!apiKey) {
-    return res.status(500).json({ error: 'Gemini API key not configured on Vercel' });
+    return res.status(200).json({ error: 'No API key configured', fallback: true });
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -57,7 +61,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = JSON.parse(response.text || "{}");
     return res.status(200).json(result);
   } catch (error: any) {
-    console.error("Gemini Error:", error.message);
-    return res.status(500).json({ error: error.message });
+    let errorMessage = error.message;
+    try {
+      const parsed = JSON.parse(error.message);
+      errorMessage = parsed.error?.message || error.message;
+    } catch (e) {
+      // Not JSON
+    }
+
+    console.error("Gemini Error:", errorMessage);
+    
+    const isInvalidKey = errorMessage?.toLowerCase().includes('api key not valid') || 
+                         errorMessage?.toLowerCase().includes('invalid_argument') ||
+                         errorMessage?.toLowerCase().includes('400');
+    
+    const isQuota = errorMessage?.toLowerCase().includes('quota') || 
+                    errorMessage?.toLowerCase().includes('exhausted') ||
+                    errorMessage?.toLowerCase().includes('429');
+    
+    return res.status(200).json({ 
+      error: isInvalidKey ? 'INVALID_KEY' : (isQuota ? 'QUOTA_EXCEEDED' : errorMessage), 
+      fallback: true 
+    });
   }
 }

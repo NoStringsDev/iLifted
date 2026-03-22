@@ -7,10 +7,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { prompt } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
+  const customKey = process.env.CUSTOM_GEMINI_KEY;
+  const defaultKey = process.env.GEMINI_API_KEY;
+  const apiKey = customKey || defaultKey;
+
+  console.log(`Image Request - Key Source: ${customKey ? 'CUSTOM_SECRET' : 'DEFAULT_MANAGED'}`);
 
   if (!apiKey) {
-    return res.status(500).json({ error: 'Gemini API key not configured on Vercel' });
+    return res.status(200).json({ error: 'No API key configured', fallback: true });
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -30,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const candidate = response.candidates?.[0];
     if (candidate?.finishReason === 'SAFETY') {
-      return res.status(400).json({ error: 'SAFETY_BLOCKED' });
+      return res.status(200).json({ error: 'SAFETY_BLOCKED', fallback: true });
     }
 
     for (const part of candidate?.content?.parts || []) {
@@ -39,9 +43,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
     
-    return res.status(500).json({ error: 'No image data generated' });
+    return res.status(200).json({ error: 'No image data generated', fallback: true });
   } catch (error: any) {
-    console.error("Gemini Image Error:", error.message);
-    return res.status(500).json({ error: error.message });
+    let errorMessage = error.message;
+    try {
+      // If error.message is a JSON string (common with GenAI SDK)
+      const parsed = JSON.parse(error.message);
+      errorMessage = parsed.error?.message || error.message;
+    } catch (e) {
+      // Not JSON, use as is
+    }
+
+    console.error("Gemini Image Error:", errorMessage);
+    
+    const isQuota = errorMessage?.toLowerCase().includes('quota') || 
+                    errorMessage?.toLowerCase().includes('exhausted') ||
+                    errorMessage?.toLowerCase().includes('429');
+    
+    return res.status(200).json({ 
+      error: isQuota ? 'QUOTA_EXCEEDED' : errorMessage, 
+      fallback: true 
+    });
   }
 }
