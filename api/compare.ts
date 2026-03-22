@@ -7,6 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { weight, unit, category } = req.body;
+  let retryDelaySec: number | null = null;
   const customKey = process.env.CUSTOM_GEMINI_KEY;
   const defaultKey = process.env.GEMINI_API_KEY;
   const apiKey = customKey || defaultKey;
