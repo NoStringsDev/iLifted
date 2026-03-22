@@ -101,7 +101,7 @@ export default function App() {
       if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
         setError("AI is resting between sets. Try again in a minute!");
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("All AI services are currently overloaded. Please wait a moment and retry.");
+        setError("All AI services have hit their rate limits. Credits refill hourly, so sit tight and try again shortly!");
       } else if (err.message === "INVALID_KEY") {
         setError("Your Gemini API key is invalid. Please add a CUSTOM_GEMINI_KEY in your Secrets.");
       } else {
@@ -126,11 +126,13 @@ export default function App() {
       setImageUrl(img);
       setApiStatus(img.startsWith('data:') ? 'gemini' : 'fallback');
       
-      // If it's a data URL (Gemini), it's already "loaded"
       if (img.startsWith('data:')) {
         setImageLoading(false);
+      } else {
+        // For Pollinations URLs, add a hard timeout fallback
+        // in case the img onLoad/onError never fires
+        setTimeout(() => setImageLoading(false), 20000);
       }
-      // For Pollinations URLs, the <img> onLoad will set loading to false
       
       confetti({
         particleCount: 50,
@@ -144,7 +146,7 @@ export default function App() {
       if (err.message === "QUOTA_EXCEEDED_MINUTE" || err.message === "QUOTA_EXCEEDED") {
         setError("AI image generation is resting. Try again in a minute!");
       } else if (err.message === "QUOTA_EXCEEDED_DAY") {
-        setError("Image services are currently overloaded. Please wait a moment.");
+        setError("All AI services have hit their rate limits. Credits refill hourly, so sit tight and try again shortly!");
       } else if (err.message === "INVALID_KEY") {
         setError("Invalid API key detected. Please check your Secrets.");
       } else if (err.message === "IMAGE_TIMEOUT") {

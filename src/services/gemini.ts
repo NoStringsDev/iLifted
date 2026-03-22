@@ -39,58 +39,39 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   
   const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
 
-  // Expanded list of models to try
-  const models = ['openai', 'mistral', 'searchgpt', 'p1', 'llama', 'qwen', 'gemini'];
-  
+  // Use only the most stable models, not all 7 at once
+  const models = ['openai', 'mistral'];
+
   for (const model of models) {
     try {
-      // Try with json=true first
-      let url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
+      const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
       
-      let response = await fetch(url);
-      
-      // If rate limited, wait 1 second and try WITHOUT json=true (often has different limits)
-      if (response.status === 429) {
-        console.warn(`Model ${model} rate limited. Retrying without JSON flag...`);
-        await new Promise(r => setTimeout(r, 1000));
-        url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&seed=${Math.floor(Math.random() * 1000000)}`;
-        response = await fetch(url);
-      }
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
 
-      if (!response.ok) {
-        console.warn(`Fallback model ${model} failed with status ${response.status}`);
+      if (response.status === 429 || response.status === 502 || response.status === 503) {
+        console.warn(`Pollinations model ${model} unavailable (${response.status}), trying next...`);
         continue;
       }
+      if (!response.ok) continue;
 
       const text = await response.text();
-      if (!text || text.length < 10) continue;
-      
-      // More aggressive JSON extraction
       const firstBrace = text.indexOf('{');
       const lastBrace = text.lastIndexOf('}');
-      
-      if (firstBrace === -1 || lastBrace === -1) {
-        console.warn(`Fallback model ${model} returned no JSON structure`);
-        continue;
-      }
+      if (firstBrace === -1 || lastBrace === -1) continue;
 
-      const jsonString = text.substring(firstBrace, lastBrace + 1);
-      
-      try {
-        const parsed = JSON.parse(jsonString) as ComparisonResult;
-        if (parsed.message && parsed.shortDescription) {
-          console.log(`Successfully recovered using ${model} fallback!`);
-          return parsed;
-        }
-      } catch (parseErr) {
-        console.warn(`Failed to parse JSON from ${model}`);
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1)) as ComparisonResult;
+      if (parsed.message && parsed.shortDescription) {
+        return parsed;
       }
     } catch (error) {
-      console.warn(`Fallback model ${model} failed`);
+      console.warn(`Pollinations model ${model} failed`);
     }
   }
-  
-  console.error("CRITICAL: All AI models (Gemini + 7 Fallbacks) have failed.");
+
+  // Nothing worked - tell the user to wait rather than give them a bad experience
   throw new Error("QUOTA_EXCEEDED_DAY");
 }
 
@@ -98,9 +79,24 @@ async function generatePollinationsImage(prompt: string): Promise<string> {
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
   const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
   
-  // Return the URL directly. The browser's <img> tag is more resilient than fetch() for images.
-  // We add a random seed to bypass any cached "error" images.
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
+  
+  // Verify the image actually loads before returning the URL
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      return url;
+    }
+    throw new Error("Pollinations image failed to load");
+  } catch (err) {
+    console.error("Pollinations verification failed:", err);
+    throw new Error("IMAGE_TIMEOUT");
+  }
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
