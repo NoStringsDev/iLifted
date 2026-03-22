@@ -93,73 +93,69 @@ export async function getWeightComparison(weight: number, unit: string, category
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
+  // We return the direct URL instead of fetching it to avoid CORS issues
   const enhancedPrompt = `${prompt}, high quality, photorealistic, studio shot, clean gray background, sharp focus`;
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Pollinations fallback failed");
-  
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
   const ai = getAIClient();
-  const maxRetries = 2;
+  const maxRetries = 1; // Reduce retries to fail over faster
   let lastError: any = null;
 
   // Try Gemini first (Higher quality)
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: {
-          parts: [{ text: `A high-quality, photorealistic studio shot of: ${prompt}. The subject should have a subtle athletic or powerful stance, professional product photography, clean solid light gray background, sharp focus, natural lighting, highly detailed, 8k resolution, no text.` }]
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "1:1",
+  try {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash-image",
+          contents: {
+            parts: [{ text: `A high-quality, photorealistic studio shot of: ${prompt}. The subject should have a subtle athletic or powerful stance, professional product photography, clean solid light gray background, sharp focus, natural lighting, highly detailed, 8k resolution, no text.` }]
+          },
+          config: {
+            imageConfig: {
+              aspectRatio: "1:1",
+            }
+          }
+        });
+
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+            return `data:image/png;base64,${part.inlineData.data}`;
           }
         }
-      });
-
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          return `data:image/png;base64,${part.inlineData.data}`;
+        
+        throw new Error("No image data found");
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = (error.message || "").toLowerCase();
+        
+        // If it's a quota issue, break and go to fallback
+        if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("limit") || errorMessage.includes("exhausted")) {
+          console.warn("Gemini quota reached, using Pollinations fallback.");
+          break;
         }
-      }
-      
-      throw new Error("No image data found in response");
-    } catch (error: any) {
-      lastError = error;
-      const errorMessage = error.message || "";
-      
-      // If it's a quota issue, break the loop and try the fallback immediately
-      if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("Too Many Requests") || errorMessage.includes("exhausted")) {
-        console.warn("Gemini quota hit, switching to Pollinations fallback...");
-        break; 
-      }
 
-      if (errorMessage.includes("503") || errorMessage.includes("UNAVAILABLE")) {
-        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-        continue;
+        if (errorMessage.includes("503") || errorMessage.includes("unavailable")) {
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
+        }
+        throw error;
       }
-      throw error;
     }
+  } catch (err) {
+    console.error("Gemini failed, trying fallback:", err);
   }
   
-  // Fallback to Pollinations (High availability)
+  // Fallback to Pollinations (Always available)
   try {
     return await generatePollinationsImage(prompt);
   } catch (fallbackError) {
-    // If fallback also fails, throw the original quota error so the UI shows the gym message
-    const errorMessage = lastError?.message || "";
-    if (errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("daily")) {
+    console.error("Fallback also failed:", fallbackError);
+    const errorMessage = (lastError?.message || "").toLowerCase();
+    if (errorMessage.includes("exhausted") || errorMessage.includes("daily")) {
       throw new Error("QUOTA_EXCEEDED_DAY");
     }
     throw new Error("QUOTA_EXCEEDED_MINUTE");
