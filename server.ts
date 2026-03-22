@@ -13,8 +13,10 @@ async function startServer() {
   // API route to provide the Gemini API key to the frontend at runtime
   // This solves the issue where environment variables are missing during the build step
   app.get("/api/config", (req, res) => {
+    const key = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+    console.log(`[Config] Serving API key (length: ${key.length})`);
     res.json({
-      geminiApiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || ""
+      geminiApiKey: key
     });
   });
 

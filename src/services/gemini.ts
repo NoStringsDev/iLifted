@@ -14,12 +14,22 @@ const getAIClient = async () => {
   // 3. If still not found, try to fetch it from the server (runtime)
   if (!apiKey) {
     try {
-      const response = await fetch('/api/config');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout for config
+      
+      const response = await fetch('/api/config', { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
-        const config = await response.json();
-        if (config.geminiApiKey) {
-          runtimeApiKey = config.geminiApiKey;
-          apiKey = runtimeApiKey;
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const config = await response.json();
+          if (config.geminiApiKey) {
+            runtimeApiKey = config.geminiApiKey;
+            apiKey = runtimeApiKey;
+          }
+        } else {
+          console.warn("Config endpoint returned non-JSON response. Server might not be running in full-stack mode.");
         }
       }
     } catch (e) {
@@ -114,7 +124,12 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
   for (const model of models) {
     try {
       const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
-      const response = await fetch(url);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout per model
+      
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
       if (!response.ok) continue;
       const text = await response.text();
@@ -148,34 +163,36 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
   let lastError: any = null;
 
   // Try Gemini first (Higher quality)
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
-      contents: {
-        parts: [{ text: `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.` }]
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1",
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: {
+          parts: [{ text: `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.` }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+          }
         }
-      }
-    });
+      });
 
-    const candidate = response.candidates?.[0];
-    if (candidate?.finishReason === 'SAFETY') {
-      console.warn("Gemini image generation blocked by safety filters, falling back to Pollinations");
-    } else {
-      for (const part of candidate?.content?.parts || []) {
-        if (part.inlineData) {
-          return `data:image/png;base64,${part.inlineData.data}`;
+      const candidate = response.candidates?.[0];
+      if (candidate?.finishReason === 'SAFETY') {
+        console.warn("Gemini image generation blocked by safety filters, falling back to Pollinations");
+      } else {
+        for (const part of candidate?.content?.parts || []) {
+          if (part.inlineData) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
         }
       }
+      
+      throw new Error("No image data found or blocked by safety");
+    } catch (error: any) {
+      console.warn("Gemini image generation failed or blocked, switching to Pollinations fallback:", error.message);
+      lastError = error;
     }
-    
-    throw new Error("No image data found or blocked by safety");
-  } catch (error: any) {
-    console.warn("Gemini image generation failed or blocked, switching to Pollinations fallback:", error.message);
-    lastError = error;
   }
   
   // Fallback to Pollinations (Always available)

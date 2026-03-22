@@ -81,6 +81,7 @@ export default function App() {
     setImageLoading(false);
 
     try {
+      console.log(`Starting comparison for ${weight} ${unit} in ${selectedCategory}...`);
       const comparison = await getWeightComparison(Number(weight), unit, selectedCategory);
       setResult(comparison);
       setLoading(false);
