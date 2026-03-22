@@ -94,7 +94,8 @@ export async function getWeightComparison(weight: number, unit: string, category
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
   // We return the direct URL instead of fetching it to avoid CORS issues
-  const enhancedPrompt = `${prompt}, high quality, photorealistic, studio shot, clean gray background, sharp focus`;
+  // Aligning with the Gemini prompt for consistent gym/athletic aesthetic
+  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
 }
 
@@ -105,48 +106,28 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
 
   // Try Gemini first (Higher quality)
   try {
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-image",
-          contents: {
-            parts: [{ text: `A high-quality, photorealistic studio shot of: ${prompt}. The subject should have a subtle athletic or powerful stance, professional product photography, clean solid light gray background, sharp focus, natural lighting, highly detailed, 8k resolution, no text.` }]
-          },
-          config: {
-            imageConfig: {
-              aspectRatio: "1:1",
-            }
-          }
-        });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-image",
+      contents: {
+        parts: [{ text: `A premium yet playful, high-quality photorealistic studio shot of: ${prompt}. The image should have a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.` }]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+        }
+      }
+    });
 
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-          if (part.inlineData) {
-            return `data:image/png;base64,${part.inlineData.data}`;
-          }
-        }
-        
-        throw new Error("No image data found");
-      } catch (error: any) {
-        lastError = error;
-        const errorMessage = (error.message || "").toLowerCase();
-        
-        // If it's a quota issue, break and go to fallback
-        if (errorMessage.includes("429") || errorMessage.includes("quota") || errorMessage.includes("limit") || errorMessage.includes("exhausted")) {
-          console.warn("Gemini quota reached, using Pollinations fallback.");
-          break;
-        }
-
-        if (errorMessage.includes("503") || errorMessage.includes("unavailable")) {
-          if (i < maxRetries - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            continue;
-          }
-        }
-        throw error;
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-  } catch (err) {
-    console.error("Gemini failed, trying fallback:", err);
+    
+    throw new Error("No image data found");
+  } catch (error: any) {
+    console.warn("Gemini image generation failed, switching to Pollinations fallback:", error.message);
+    lastError = error;
   }
   
   // Fallback to Pollinations (Always available)
