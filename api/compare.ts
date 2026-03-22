@@ -35,8 +35,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     "items": ["item"]
   }`;
 
-  let retryDelaySec: number | null = null;
-
   // --- Attempt 1: Gemini ---
   try {
     const response = await ai.models.generateContent({
@@ -73,22 +71,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isInvalidKey = errorMessage?.toLowerCase().includes('api key not valid') ||
                          errorMessage?.toLowerCase().includes('invalid_argument') ||
                          errorMessage?.toLowerCase().includes('400');
-    const isQuota = errorMessage?.toLowerCase().includes('quota') ||
-                    errorMessage?.toLowerCase().includes('exhausted') ||
-                    errorMessage?.toLowerCase().includes('429');
 
-    // If it's an invalid key, bail immediately — OpenRouter won't help
     if (isInvalidKey) {
       return res.status(200).json({ error: 'INVALID_KEY', fallback: true });
     }
 
-    // Extract retry delay if Gemini told us how long to wait
     const retryDelayMatch = errorMessage?.match(/retry in (\d+(?:\.\d+)?)s/i);
     retryDelaySec = retryDelayMatch ? Math.ceil(parseFloat(retryDelayMatch[1])) : null;
     console.warn(`Gemini quota/error hit (retry in ${retryDelaySec}s), trying OpenRouter fallback...`);
   }
 
-  // --- Attempt 2: OpenRouter (server-side, uses Vercel IP but with a proper API key so no rate limit) ---
+  // --- Attempt 2: OpenRouter ---
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (openRouterKey) {
     try {
@@ -133,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.warn("OPENROUTER_API_KEY not set, skipping OpenRouter fallback.");
   }
 
-  // --- All server-side attempts exhausted, tell client to try its own fallback ---
+  // --- All server-side attempts exhausted ---
   return res.status(200).json({
     error: 'QUOTA_EXCEEDED',
     fallback: true,
