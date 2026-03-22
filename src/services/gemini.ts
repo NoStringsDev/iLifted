@@ -41,7 +41,12 @@ export async function getWeightComparison(weight: number, unit: string, category
   - "shortDescription": A very short summary, e.g., "a newborn baby elephant". NEVER include weights or numbers here.
   - "imagePrompt": A detailed prompt for an image generator showing the item.
   - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "elephant" or "vespa".
-  - "items": A list containing only that one item.`;
+  - "items": A list containing only that one item.
+  
+  7. SAFETY & APPROPRIATENESS: 
+     * The item MUST be family-friendly, non-violent, and appropriate for all audiences.
+     * AVOID items that could be misinterpreted by image safety filters (e.g., avoid weapons, drug-related items, or suggestive shapes).
+     * If a chosen item feels "borderline," pick something more clearly wholesome instead.`;
 
   const maxRetries = 3;
   let lastError: any = null;
