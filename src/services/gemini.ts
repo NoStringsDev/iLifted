@@ -28,37 +28,56 @@ export async function getWeightComparison(weight: number, unit: string, category
 }
 
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  console.warn("Entering Fallback Mode...");
+  console.warn("Gemini unavailable. Entering Robust Fallback Mode...");
   
-  const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY JSON: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
+  const prompt = `The user lifted ${weight} ${unit}. Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in category ${category}. Return ONLY a JSON object: {"message": "msg", "shortDescription": "item", "imagePrompt": "prompt", "objectTag": "tag", "items": ["item"]}`;
 
-  // Try multiple models via GET (more robust for CORS/Vercel)
-  const models = ['openai', 'mistral', 'searchgpt'];
+  // Expanded list of models to try
+  const models = ['openai', 'mistral', 'searchgpt', 'p1', 'llama'];
   
   for (const model of models) {
     try {
       const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}&json=true&seed=${Math.floor(Math.random() * 1000000)}`;
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout per model
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s per model
       
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.warn(`Fallback model ${model} returned status ${response.status}`);
+        continue;
+      }
+
       const text = await response.text();
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) continue;
       
-      const parsed = JSON.parse(jsonMatch[0]) as ComparisonResult;
-      if (parsed.message && parsed.shortDescription) return parsed;
+      // More aggressive JSON extraction: find the first { and the last }
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      
+      if (firstBrace === -1 || lastBrace === -1) {
+        console.warn(`Fallback model ${model} returned no JSON structure`);
+        continue;
+      }
+
+      const jsonString = text.substring(firstBrace, lastBrace + 1);
+      
+      try {
+        const parsed = JSON.parse(jsonString) as ComparisonResult;
+        if (parsed.message && parsed.shortDescription) {
+          console.log(`Successfully recovered using ${model} fallback!`);
+          return parsed;
+        }
+      } catch (parseErr) {
+        console.warn(`Failed to parse JSON from ${model}:`, jsonString.substring(0, 50) + "...");
+      }
     } catch (error) {
-      console.warn(`Fallback model ${model} failed:`, error);
+      console.warn(`Fallback model ${model} connection failed`);
     }
   }
   
-  // If we reach here, all AI models (Gemini + Fallbacks) have failed
-  console.error("All AI models failed to respond.");
+  console.error("CRITICAL: All AI models (Gemini + 5 Fallbacks) have failed.");
   throw new Error("QUOTA_EXCEEDED_DAY");
 }
 
