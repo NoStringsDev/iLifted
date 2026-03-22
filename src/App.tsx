@@ -117,7 +117,12 @@ export default function App() {
 
       const img = await Promise.race([imagePromise, timeoutPromise]) as string;
       setImageUrl(img);
-      setImageLoading(false);
+      
+      // If it's a data URL (Gemini), it's already "loaded"
+      if (img.startsWith('data:')) {
+        setImageLoading(false);
+      }
+      // For Pollinations URLs, the <img> onLoad will set loading to false
       
       confetti({
         particleCount: 50,
@@ -577,7 +582,21 @@ export default function App() {
               </div>
 
               {error && (
-                <p className="text-red-400 text-[10px] font-medium text-center animate-pulse">{error}</p>
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center"
+                >
+                  <p className="text-red-400 text-[10px] font-medium mb-2">
+                    {error}
+                  </p>
+                  <button
+                    onClick={() => handleCompare(category!)}
+                    className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors"
+                  >
+                    Retry Lift
+                  </button>
+                </motion.div>
               )}
             </motion.div>
           ) : (
@@ -614,6 +633,7 @@ export default function App() {
                           alt="Comparison"
                           className="w-full h-full object-contain p-2"
                           referrerPolicy="no-referrer"
+                          onLoad={() => setImageLoading(false)}
                           onError={() => {
                             console.error("Image failed to load, falling back to text version");
                             setImageUrl(null);
@@ -666,9 +686,21 @@ export default function App() {
               {!imageUrl && !imageLoading && (
                 <div className="px-4 py-2 space-y-2">
                   {error && (
-                    <p className="text-red-400 text-[10px] font-medium text-center animate-pulse">
-                      {error}
-                    </p>
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center"
+                    >
+                      <p className="text-red-400 text-[10px] font-medium mb-2">
+                        {error}
+                      </p>
+                      <button
+                        onClick={handleGenerateImage}
+                        className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[9px] font-bold uppercase tracking-widest rounded-lg transition-colors"
+                      >
+                        Retry Image
+                      </button>
+                    </motion.div>
                   )}
                   <button
                     onClick={handleGenerateImage}

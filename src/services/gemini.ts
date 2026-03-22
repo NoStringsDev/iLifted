@@ -17,7 +17,6 @@ export interface ComparisonResult {
 }
 
 export async function getWeightComparison(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  const ai = getAIClient();
   const isSurprise = category === 'surprise me';
   const categoryPrompt = isSurprise 
     ? "ANYTHING AT ALL (the more bizarre, obscure, or unexpected, the better). AVOID generic nature/animals unless they are extremely weird. Think: obscure tech, specific food items, pop culture props, weird museum artifacts, or abstract but weighable things."
@@ -34,123 +33,111 @@ export async function getWeightComparison(weight: number, unit: string, category
   5. ${isSurprise ? "For 'Surprise Me', lean into the weird and wonderful. ACTIVELY AVOID common animals or nature. Think: 'a vintage 1980s arcade cabinet', 'a giant wheel of aged parmesan', 'a full-sized replica of a sci-fi helmet', etc." : "Be fast and concise."}
   6. Return a JSON object with:
   - "message": A punchy, celebratory message talking TO the user. 
-    * USE SECOND PERSON ("You just...", "Look at you...", "You're basically...") or EXCLAMATIONS ("Wow!", "Great Scott!", "Avast!").
-    * NEVER use first person ("I just...", "I lifted...").
-    * NEVER include the weight or numbers in this message.
-    * Example: "Holy smokes! You just hoisted a newborn baby elephant like it was a rubber ducky!"
-  - "shortDescription": The name of the item ONLY, e.g., "A newborn baby elephant". No extra words like "That's like lifting...". Just the item name.
-  - "imagePrompt": A detailed prompt for an image generator showing the item. Ensure the prompt describes a centered, square-composition subject.
-  - "objectTag": A single word (lowercase, no spaces) that identifies the object, e.g., "elephant" or "vespa".
+  - "shortDescription": The name of the item ONLY.
+  - "imagePrompt": A detailed prompt for an image generator showing the item.
+  - "objectTag": A single word (lowercase, no spaces) that identifies the object.
   - "items": A list containing only that one item.
   
-  7. SAFETY & APPROPRIATENESS: 
-     * The item MUST be family-friendly, non-violent, and appropriate for all audiences.
-     * AVOID items that could be misinterpreted by image safety filters (e.g., avoid weapons, drug-related items, or suggestive shapes).
-     * If a chosen item feels "borderline," pick something more clearly wholesome instead.`;
+  7. SAFETY: Family-friendly only.`;
 
-  const maxRetries = 3;
-  let lastError: any = null;
+  try {
+    const ai = getAIClient();
+    const maxRetries = 2;
 
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              message: { type: Type.STRING },
-              shortDescription: { type: Type.STRING },
-              imagePrompt: { type: Type.STRING },
-              objectTag: { type: Type.STRING },
-              items: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            },
-            required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                message: { type: Type.STRING },
+                shortDescription: { type: Type.STRING },
+                imagePrompt: { type: Type.STRING },
+                objectTag: { type: Type.STRING },
+                items: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                }
+              },
+              required: ["message", "shortDescription", "imagePrompt", "objectTag", "items"]
+            }
           }
-        }
-      });
+        });
 
-      return JSON.parse(response.text || "{}") as ComparisonResult;
-    } catch (error: any) {
-      lastError = error;
-      const errorMessage = error.message || "";
-      // If it's a 503 or 429, wait and retry
-      if (errorMessage.includes("503") || errorMessage.includes("429") || errorMessage.includes("UNAVAILABLE")) {
-        // If it's a quota issue, try fallback
-        if (errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("daily")) {
-          return await getWeightComparisonFallback(weight, unit, category);
+        const parsed = JSON.parse(response.text || "{}") as ComparisonResult;
+        if (parsed.message && parsed.shortDescription) return parsed;
+      } catch (error: any) {
+        const errorMessage = (error.message || "").toLowerCase();
+        // If it's a quota issue, break and go to fallback immediately
+        if (errorMessage.includes("exhausted") || errorMessage.includes("daily") || errorMessage.includes("429")) {
+          break;
         }
-        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-        continue;
+        // For other errors, wait a bit and retry once
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
       }
-      // For other errors, try fallback before giving up
-      return await getWeightComparisonFallback(weight, unit, category);
     }
+  } catch (initError) {
+    console.warn("Gemini initialization failed, jumping to fallback:", initError);
   }
 
+  // If we reach here, Gemini failed or was skipped
   return await getWeightComparisonFallback(weight, unit, category);
 }
 
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
-  console.warn("Gemini text generation failed or quota exceeded, switching to Pollinations fallback");
+  console.warn("Gemini text generation failed, switching to Pollinations fallback chain...");
   const isSurprise = category === 'surprise me';
   const categoryPrompt = isSurprise 
-    ? "ANYTHING AT ALL (the more bizarre, obscure, or unexpected, the better). AVOID generic nature/animals unless they are extremely weird."
+    ? "ANYTHING AT ALL (weird, obscure, unexpected). AVOID generic animals."
     : `the category "${category}"`;
 
-  const prompt = `The user just lifted ${weight} ${unit}. 
-  Provide a funny and interesting comparison of ONE SINGLE item that weighs AT MOST ${weight} ${unit} in ${categoryPrompt}.
-  
-  RULES:
-  1. Use ONLY ONE single item.
-  2. Weight MUST NOT exceed ${weight} ${unit}.
-  3. NEVER mention weights/numbers in "message" or "shortDescription".
-  4. Return ONLY a JSON object:
+  const prompt = `The user lifted ${weight} ${unit}. 
+  Provide a funny comparison of ONE item weighing AT MOST ${weight} ${unit} in ${categoryPrompt}.
+  Return ONLY a JSON object:
   {
-    "message": "Punchy celebratory message TO the user (2nd person)",
-    "shortDescription": "The name of the item ONLY (e.g. 'A baby elephant')",
-    "imagePrompt": "Detailed prompt for an image generator (centered, square composition)",
-    "objectTag": "singlewordtag",
-    "items": ["item name"]
-  }
-  5. Safety: Family-friendly only.
+    "message": "Celebratory message to user",
+    "shortDescription": "Item name only",
+    "imagePrompt": "Detailed visual prompt",
+    "objectTag": "tag",
+    "items": ["item"]
+  }`;
+
+  // Try multiple models in sequence if one fails
+  const models = ['openai', 'mistral', 'searchgpt'];
   
-  Return ONLY the JSON.`;
-
-  const maxRetries = 3;
-  for (let i = 0; i < maxRetries; i++) {
+  for (const model of models) {
     try {
-      // Use GET for better reliability on Pollinations
-      const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?json=true&model=openai&seed=${Math.floor(Math.random() * 1000000)}`;
-      const response = await fetch(url);
+      const response = await fetch('https://text.pollinations.ai/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are a JSON-only response bot. No conversational text.' },
+            { role: 'user', content: prompt }
+          ],
+          model: model,
+          json: true,
+          seed: Math.floor(Math.random() * 1000000)
+        })
+      });
 
-      if (!response.ok) throw new Error(`Pollinations text fallback failed with status ${response.status}`);
+      if (!response.ok) continue;
       const text = await response.text();
-      
-      // Try to find JSON in the response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("Invalid JSON from fallback");
+      if (!jsonMatch) continue;
       
       const parsed = JSON.parse(jsonMatch[0]) as ComparisonResult;
-      
-      // Basic validation
-      if (!parsed.message || !parsed.shortDescription) {
-        throw new Error("Incomplete JSON from fallback");
-      }
-      
-      return parsed;
+      if (parsed.message && parsed.shortDescription) return parsed;
     } catch (error) {
-      console.error(`Pollinations text fallback attempt ${i + 1} failed:`, error);
-      if (i === maxRetries - 1) {
-        throw new Error("QUOTA_EXCEEDED_DAY");
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+      console.warn(`Pollinations model ${model} failed, trying next...`);
     }
   }
   
@@ -159,22 +146,11 @@ async function getWeightComparisonFallback(weight: number, unit: string, categor
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
   const cleanPrompt = prompt.replace(/["']/g, '').trim();
-  const enhancedPrompt = `A premium yet playful, high-quality photorealistic studio shot of: ${cleanPrompt}. The image should have a centered, square composition with a subtle gym or weightlifting flavor, using professional lighting and sharp focus. Feel free to be playful with the background, incorporating fitness-themed elements in visually engaging ways to give the subject an athletic presence. No text.`;
+  const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
   
-  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
-  
-  // Actually fetch the image to ensure it's ready before returning the URL
-  // This makes the loading state in the UI accurate
-  try {
-    const response = await fetch(imageUrl);
-    if (!response.ok) throw new Error("Pollinations image generation failed");
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
-  } catch (error) {
-    console.error("Error pre-fetching Pollinations image:", error);
-    // Return the URL anyway as a last resort, browser might still load it
-    return imageUrl;
-  }
+  // Return the URL directly. The browser's <img> tag is more resilient than fetch() for images.
+  // We add a random seed to bypass any cached "error" images.
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
 }
 
 export async function generateComparisonImage(prompt: string): Promise<string> {
