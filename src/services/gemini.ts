@@ -82,19 +82,67 @@ export async function getWeightComparison(weight: number, unit: string, category
       const errorMessage = error.message || "";
       // If it's a 503 or 429, wait and retry
       if (errorMessage.includes("503") || errorMessage.includes("429") || errorMessage.includes("UNAVAILABLE")) {
-        // If it's a quota issue, we might want to throw immediately if it's the daily one, 
-        // but for RPM we should retry.
+        // If it's a quota issue, try fallback
         if (errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("daily")) {
-          throw new Error("QUOTA_EXCEEDED_DAY");
+          return await getWeightComparisonFallback(weight, unit, category);
         }
         await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
         continue;
       }
-      throw error;
+      // For other errors, try fallback before giving up
+      return await getWeightComparisonFallback(weight, unit, category);
     }
   }
 
-  throw lastError || new Error("Failed to get comparison after retries");
+  return await getWeightComparisonFallback(weight, unit, category);
+}
+
+async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
+  console.warn("Gemini text generation failed or quota exceeded, switching to Pollinations fallback");
+  const isSurprise = category === 'surprise me';
+  const categoryPrompt = isSurprise 
+    ? "ANYTHING AT ALL (the more bizarre, obscure, or unexpected, the better). AVOID generic nature/animals unless they are extremely weird."
+    : `the category "${category}"`;
+
+  const prompt = `The user just lifted ${weight} ${unit}. 
+  Provide a funny and interesting comparison of ONE SINGLE item that weighs AT MOST ${weight} ${unit} in ${categoryPrompt}.
+  
+  RULES:
+  1. Use ONLY ONE single item.
+  2. Weight MUST NOT exceed ${weight} ${unit}.
+  3. NEVER mention weights/numbers in "message" or "shortDescription".
+  4. Return ONLY a JSON object:
+  {
+    "message": "Punchy celebratory message TO the user (2nd person)",
+    "shortDescription": "Very short summary (e.g. 'a baby elephant')",
+    "imagePrompt": "Detailed prompt for an image generator",
+    "objectTag": "singlewordtag",
+    "items": ["item name"]
+  }
+  5. Safety: Family-friendly only.
+  
+  Return ONLY the JSON.`;
+
+  try {
+    const response = await fetch('https://text.pollinations.ai/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'openai',
+        json: true
+      })
+    });
+
+    if (!response.ok) throw new Error("Pollinations text fallback failed");
+    const text = await response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Invalid JSON from fallback");
+    return JSON.parse(jsonMatch[0]) as ComparisonResult;
+  } catch (error) {
+    console.error("Pollinations text fallback also failed:", error);
+    throw new Error("QUOTA_EXCEEDED_DAY");
+  }
 }
 
 async function generatePollinationsImage(prompt: string): Promise<string> {
