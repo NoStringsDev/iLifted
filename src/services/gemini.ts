@@ -59,7 +59,6 @@ export async function getWeightComparison(
 async function getWeightComparisonFallback(weight: number, unit: string, category: string): Promise<ComparisonResult> {
   console.warn("Server-side AI unavailable. Entering client-side fallback chain...");
 
-  // --- Attempt 1: Pollinations (no key needed, client-side IP) ---
   const low = Math.round(Number(weight) * 0.7);
   const high = Math.round(Number(weight) * 1.3);
   const isSurprise = category === 'surprise me';
@@ -109,7 +108,7 @@ Return ONLY valid JSON with no markdown or explanation:
     }
   }
 
-  // --- Attempt 2: OpenRouter via our Vercel function (key stays server-side) ---
+  // Attempt 2: OpenRouter via Vercel function (key stays server-side)
   console.warn("Pollinations unavailable, trying OpenRouter via /api/text-fallback...");
 
   try {
@@ -142,77 +141,22 @@ Return ONLY valid JSON with no markdown or explanation:
 
 // --- Image generation ---
 
-async function generatePollinationsImage(prompt: string): Promise<string> {
-  const cleanPrompt = prompt.replace(/["']/g, '').trim();
-  const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
-
-  const models = ['turbo', 'flux'];
-
-  for (const model of models) {
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=${model}`;
-
-    console.log(`Fetching Pollinations image (model: ${model}):`, url.substring(0, 100) + "...");
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
-
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      console.log(`Pollinations ${model} response: ${response.status} ${response.headers.get('content-type')}`);
-
-      if (!response.ok) {
-        console.warn(`Pollinations ${model} returned ${response.status}, trying next model...`);
-        continue;
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.startsWith('image/')) {
-        console.warn(`Pollinations ${model} returned non-image content-type: ${contentType}, trying next model...`);
-        continue;
-      }
-
-      const blob = await response.blob();
-      console.log(`Pollinations ${model} succeeded.`);
-      return URL.createObjectURL(blob);
-    } catch (err: any) {
-      clearTimeout(timeout);
-      console.warn(`Pollinations ${model} fetch failed:`, err.message);
-    }
-  }
-
-  throw new Error("Pollinations image failed on all models");
-}
-
-async function generateFalImage(prompt: string): Promise<string> {
-  const cleanPrompt = prompt.replace(/["']/g, '').trim();
-  const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
-
-  console.log("Attempting fal.ai image fallback...");
-
-  const response = await fetch('/api/image-fal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: enhancedPrompt })
+/**
+ * Converts a blob: URL to a base64 data URL so the img tag never hits
+ * cross-origin issues and onLoad fires reliably.
+ */
+async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'fal.ai API error' }));
-    throw new Error(errorData.error || `fal.ai returned ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (!data.image) throw new Error("fal.ai returned no image");
-
-  console.log("fal.ai image succeeded.");
-  return data.image;
 }
 
-export async function generateComparisonImage(prompt: string): Promise<string> {
-  let lastError: any = null;
-
-  // 1. Try Gemini via Vercel function
+async function tryGeminiImage(prompt: string): Promise<string | null> {
   try {
     const response = await fetch('/api/image', {
       method: 'POST',
@@ -220,42 +164,114 @@ export async function generateComparisonImage(prompt: string): Promise<string> {
       body: JSON.stringify({ prompt })
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      if (data.image) {
-        console.log("Gemini image succeeded.");
-        return data.image;
-      }
-      if (data.fallback) {
-        console.warn("Gemini image fallback triggered:", data.error);
-        throw new Error(data.error || "GEMINI_FALLBACK");
-      }
-      throw new Error("Invalid response format");
+    if (!response.ok) {
+      console.warn(`Gemini image endpoint returned ${response.status}`);
+      return null;
     }
 
-    const errorData = await response.json().catch(() => ({ error: "Vercel API error" }));
-    throw new Error(errorData.error || "Vercel API error");
-  } catch (error: any) {
-    console.warn("Gemini image failed, trying Pollinations:", error.message);
-    lastError = error;
-  }
-
-  // 2. Try Pollinations (client-side, turbo then flux)
-  try {
-    return await generatePollinationsImage(prompt);
-  } catch (pollinationsError: any) {
-    console.warn("Pollinations image failed, trying fal.ai:", pollinationsError.message);
-  }
-
-  // 3. Try fal.ai via Vercel function
-  try {
-    return await generateFalImage(prompt);
-  } catch (falError: any) {
-    console.error("fal.ai image fallback failed:", falError.message);
-    const errorMessage = (lastError?.message || "").toLowerCase();
-    if (errorMessage.includes("exhausted") || errorMessage.includes("daily")) {
-      throw new Error("QUOTA_EXCEEDED_DAY");
+    const data = await response.json();
+    if (data.image) {
+      console.log("Gemini image succeeded.");
+      return data.image;
     }
-    throw new Error("QUOTA_EXCEEDED_MINUTE");
+    if (data.fallback) {
+      console.warn("Gemini image flagged as fallback:", data.error);
+      return null;
+    }
+    return null;
+  } catch (err: any) {
+    console.warn("Gemini image threw:", err.message);
+    return null;
   }
+}
+
+async function tryPollinationsImage(prompt: string): Promise<string | null> {
+  const cleanPrompt = prompt.replace(/["']/g, '').trim();
+  const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
+  const models = ['turbo', 'flux'];
+
+  for (const model of models) {
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}&model=${model}`;
+    console.log(`Trying Pollinations image (model: ${model})...`);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        console.warn(`Pollinations ${model} returned ${response.status}`);
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('image/')) {
+        console.warn(`Pollinations ${model} returned non-image content-type: ${contentType}`);
+        continue;
+      }
+
+      const blob = await response.blob();
+      // Convert to data URL immediately so the img tag works reliably everywhere
+      const blobUrl = URL.createObjectURL(blob);
+      const dataUrl = await blobUrlToDataUrl(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      console.log(`Pollinations ${model} succeeded.`);
+      return dataUrl;
+    } catch (err: any) {
+      clearTimeout(timeout);
+      console.warn(`Pollinations ${model} failed:`, err.message);
+    }
+  }
+
+  return null;
+}
+
+async function tryFalImage(prompt: string): Promise<string | null> {
+  const cleanPrompt = prompt.replace(/["']/g, '').trim();
+  const enhancedPrompt = `A premium photorealistic studio shot of: ${cleanPrompt}. Centered, square composition, professional lighting, sharp focus. No text.`;
+
+  console.log("Trying fal.ai image...");
+
+  try {
+    const response = await fetch('/api/image-fal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: enhancedPrompt })
+    });
+
+    if (!response.ok) {
+      console.warn(`fal.ai returned ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.image) {
+      console.log("fal.ai image succeeded.");
+      return data.image;
+    }
+    return null;
+  } catch (err: any) {
+    console.warn("fal.ai threw:", err.message);
+    return null;
+  }
+}
+
+export async function generateComparisonImage(prompt: string): Promise<string> {
+  // Try each provider in sequence, silently falling through on any failure.
+  // The caller only sees an error once everything is exhausted.
+
+  const geminiResult = await tryGeminiImage(prompt);
+  if (geminiResult) return geminiResult;
+
+  const pollinationsResult = await tryPollinationsImage(prompt);
+  if (pollinationsResult) return pollinationsResult;
+
+  const falResult = await tryFalImage(prompt);
+  if (falResult) return falResult;
+
+  // All three providers failed
+  console.error("All image providers exhausted.");
+  throw new Error("QUOTA_EXCEEDED_DAY");
 }
